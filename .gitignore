@@ -1,0 +1,6 @@
+data/
+__pycache__/
+*.pyc
+.venv/
+meshcore_dashboard/static/
+node_modules/
