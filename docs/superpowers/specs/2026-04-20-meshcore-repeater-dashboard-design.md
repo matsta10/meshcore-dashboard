@@ -72,7 +72,7 @@ FastAPI Backend (systemd)
 
 **Adaptive polling with TTL.** Default 60s. Frontend can request "live mode" (10s) via WebSocket. Live mode requests carry a 30-second TTL. Frontend renews the TTL while the tab is foregrounded (via Page Visibility API). When all live mode TTLs expire (tab backgrounded, client disconnected, network drop), poller automatically falls back to 60s. No stale live mode sessions left behind.
 
-**Reboot detection.** If `uptime_secs` in a new poll is less than the previous poll, the poller logs a `device_rebooted` event and triggers a full config re-read (someone may have changed settings via the serial console while the dashboard wasn't looking).
+**Reboot detection.** If `uptime_secs` in a new poll is less than the previous poll, the poller: (1) writes a synthetic changelog entry with key `_meta.reboot` and the old/new uptime values, (2) logs to journalctl, (3) triggers a full config re-read (someone may have changed settings via the serial console while the dashboard wasn't looking). Using `config_changelog` avoids needing a separate events table for v1.
 
 **Parser resilience.** If a stats or config response fails to parse (e.g., firmware upgrade changed JSON shape or renamed a key), the poller logs the raw response line, returns the last known good snapshot with a `stale: true` flag, and surfaces "parser error - device firmware may have changed" in the UI. Parse failures never crash the poller.
 
@@ -162,7 +162,12 @@ recv_errors     INTEGER
 - Hourly averages: keep 90 days
 - Daily averages: keep forever
 
-Downsampled data stored in `stats_hourly` and `stats_daily` tables with same columns (averaged values).
+Downsampled data stored in `stats_hourly` and `stats_daily` tables with same columns.
+
+**Downsampling semantics by column type:**
+- **Gauges** (battery_mv, queue_len, errors, noise_floor, last_rssi, last_snr): averaged over the window
+- **Monotonic counters** (packets_recv, packets_sent, flood_rx, flood_tx, direct_rx, direct_tx, recv_errors, tx_air_secs, rx_air_secs): last value in the window (preserves running total; frontend computes deltas for rate display)
+- **Uptime** (uptime_secs): last value in the window
 
 ### config_current
 
@@ -240,16 +245,18 @@ GET  /api/health              Returns 200 if last successful poll <5min ago, 503
 GET  /api/status              Current connection status + device info (from DB)
 GET  /api/stats/current       Latest stats snapshot
 GET  /api/stats/history       Stats over time
-                              Query params: metric, from, to, resolution (raw|hourly|daily)
+                              Query params: metrics (comma-separated), from, to,
+                              resolution (raw|hourly|daily)
 ```
 
-`resolution` param selects which table to query. Frontend sparklines use `hourly`; detail views use `raw`.
+`resolution` param selects which table to query. `metrics` accepts comma-separated column names (e.g., `metrics=battery_mv,last_rssi,last_snr,noise_floor`) to fetch multiple series in one request, avoiding N round trips for dashboard sparklines. Returns rows with `{timestamp, <requested columns>}`. Frontend sparklines use `hourly`; detail views use `raw`.
 
 ### Configuration
 
 ```
 GET  /api/config              All config key/values (from config_current table)
 GET  /api/config/{key}        Single key read (from DB)
+                              Password keys (password, guest) return value: "***"
 PUT  /api/config/{key}        Set a config value (hits serial, snapshots old value first)
 POST /api/config/{key}/revert Revert to previous value (from changelog)
 GET  /api/config/changelog    Config change history
@@ -292,7 +299,7 @@ POST /api/command             Execute a whitelisted CLI command
 - Destructive (require `"confirm": true` in body): `reboot`, `clear stats`, `log erase`
 - **Explicitly blocked**: all `set` and `get` commands (use `/api/config/{key}` instead - this prevents bypassing confirmation flows for critical params), `set prv.key`, `password`, `erase`, any unknown command
 
-**Reboot cooldown:** After a reboot command, the endpoint returns a 60s cooldown. Subsequent reboot requests during cooldown return 429 with remaining seconds. Frontend shows countdown.
+**Reboot cooldown:** After a reboot command, the endpoint returns a 60s cooldown. Subsequent reboot requests during cooldown return 429 with remaining seconds. Frontend shows countdown. Cooldown is tracked in-memory (lost on server restart - acceptable edge case; persisting to disk is a one-liner cleanup if needed).
 
 ### WebSocket
 
@@ -385,6 +392,8 @@ FastAPI middleware checks on all routes except `/api/health`.
 **Fail-closed default:** If `BASIC_AUTH_USER` and `BASIC_AUTH_PASS` are not set, the server refuses to start and logs: "BASIC_AUTH_USER/PASS must be set, or set AUTH_DISABLED=1 to explicitly run without authentication." This prevents accidentally deploying with no auth behind a reverse proxy.
 
 If fronted by a reverse proxy (Caddy/Traefik/nginx-proxy-manager) for TLS, can set `AUTH_DISABLED=1` and handle auth at the proxy level.
+
+**Future cleanup candidate:** Replace `AUTH_DISABLED=1` with `AUTH_MODE=none|basic|proxy` to support header-based auth from Authelia/Authentik. Not needed for v1.
 
 ## Backup
 
