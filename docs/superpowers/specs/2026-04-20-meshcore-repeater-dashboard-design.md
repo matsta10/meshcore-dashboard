@@ -43,7 +43,7 @@ FastAPI Backend (systemd)
     +-- Command Executor (on-demand only)
     |       set config, reboot, advert, etc.
     |       serialized via asyncio.Lock
-    |       pre-change config snapshots
+    |       config changes logged to changelog (old_value preserved)
     |
     +-- RepeaterConnection
     |       owns serial port
@@ -51,18 +51,30 @@ FastAPI Backend (systemd)
     |       command timeout handling
     |       distinct states: connected / unresponsive / disconnected
     |
-    +-- Retention Job (daily)
+    +-- Config Sync
+    |       full config read at startup + after reboot detection
+    |       no periodic config polling (config rarely changes)
+    |       drift logged to changelog with source: "detected"
+    |
+    +-- Retention Job (daily, 03:00 UTC)
             downsamples stats
             backs up DB
+            runs under WAL so no poller conflicts
 ```
 
 ### Key Architectural Decisions
+
+**SQLite WAL mode.** `PRAGMA journal_mode=WAL` on DB init. Allows concurrent reads while the poller writes, and prevents the daily retention job from blocking poll writes.
 
 **Single background poller, DB-backed reads.** One background task polls the repeater and writes to SQLite. All HTTP and WebSocket clients read from the database, never from serial directly. Only explicit user commands (set config, send advert, reboot) hit serial on demand. Multiple browser clients don't increase device load.
 
 **Single process.** FastAPI serves the built React frontend as static files. No nginx, no split services.
 
-**Adaptive polling.** Default 60s. Frontend can request "live mode" (10s) via WebSocket message. Uses Page Visibility API to auto-downgrade when tab is backgrounded. Only one live mode session needed at a time - the poller runs at the fastest requested rate.
+**Adaptive polling with TTL.** Default 60s. Frontend can request "live mode" (10s) via WebSocket. Live mode requests carry a 30-second TTL. Frontend renews the TTL while the tab is foregrounded (via Page Visibility API). When all live mode TTLs expire (tab backgrounded, client disconnected, network drop), poller automatically falls back to 60s. No stale live mode sessions left behind.
+
+**Reboot detection.** If `uptime_secs` in a new poll is less than the previous poll, the poller logs a `device_rebooted` event and triggers a full config re-read (someone may have changed settings via the serial console while the dashboard wasn't looking).
+
+**Parser resilience.** If a stats or config response fails to parse (e.g., firmware upgrade changed JSON shape or renamed a key), the poller logs the raw response line, returns the last known good snapshot with a `stale: true` flag, and surfaces "parser error - device firmware may have changed" in the UI. Parse failures never crash the poller.
 
 ## Serial Protocol Layer
 
@@ -164,7 +176,7 @@ updated_at      DATETIME
 
 ### config_changelog
 
-Append-only log of actual config changes. Only written when a value differs from the previous stored value. Includes pre-change snapshot for one-click revert.
+Append-only log of actual config changes. Written when a value differs from the previous stored value. The `old_value` field serves as the pre-change snapshot - one write, not two.
 
 ```
 id              INTEGER PRIMARY KEY
@@ -244,10 +256,12 @@ GET  /api/config/changelog    Config change history
 ```
 
 **PUT /api/config/{key} safety:**
-- Before any `set` command, snapshot current value to DB as pre-change marker
+- Reads current value from device before writing; the changelog entry's `old_value` is the pre-change record (one write, not a separate snapshot)
 - Critical params (radio freq, bw, sf, cr, tx power) require `"confirm_value": "<value>"` in body - frontend makes user type the value twice
 - All other params use normal save buttons
 - Returns the changelog entry so frontend can show "undo" option
+
+**POST /api/config/{key}/revert** reverts to the `old_value` of the most recent changelog entry for that key. Time-travel revert to an arbitrary changelog entry is a stretch goal (`POST /api/config/revert/{changelog_id}`).
 
 ### Neighbors
 
@@ -276,7 +290,7 @@ POST /api/command             Execute a whitelisted CLI command
 **Command whitelist:**
 - Safe: `ver`, `board`, `clock`, `stats-core`, `stats-radio`, `stats-packets`, `neighbors`, `advert`, `advert.zerohop`, `discover.neighbors`, `log`, `log start`, `log stop`, `region`, `region list`
 - Destructive (require `"confirm": true` in body): `reboot`, `clear stats`, `log erase`
-- Blocked: `set prv.key`, `password`, `erase`, any unknown command
+- **Explicitly blocked**: all `set` and `get` commands (use `/api/config/{key}` instead - this prevents bypassing confirmation flows for critical params), `set prv.key`, `password`, `erase`, any unknown command
 
 **Reboot cooldown:** After a reboot command, the endpoint returns a 60s cooldown. Subsequent reboot requests during cooldown return 429 with remaining seconds. Frontend shows countdown.
 
@@ -300,7 +314,7 @@ WS   /ws                      Live updates
 { "type": "set_live_mode", "data": { "enabled": true } }
 ```
 
-When live mode enabled, poller drops to 10s. When disabled (or tab backgrounded via Page Visibility API), returns to 60s. The poller runs at the fastest rate any connected client requests.
+**Live mode TTL mechanism:** Each `set_live_mode` request sets a 30-second TTL for that WebSocket connection. Frontend sends a renewal every ~15s while the tab is foregrounded. When the tab backgrounds (Page Visibility API), frontend stops renewing. When all clients' TTLs expire, poller falls back to 60s. A dropped WebSocket connection (closed tab, network failure) naturally expires after 30s with no action needed. The poller recalculates its rate whenever any TTL expires or a new live mode request arrives.
 
 ## Read-Only Mode
 
@@ -366,18 +380,27 @@ BASIC_AUTH_USER=admin
 BASIC_AUTH_PASS=changeme
 ```
 
-FastAPI middleware checks on all routes except `/api/health`. If env vars not set, no auth (local-only use).
+FastAPI middleware checks on all routes except `/api/health`.
 
-If fronted by a reverse proxy (Caddy/Traefik/nginx-proxy-manager) for TLS, can drop basic auth in favor of proxy-level auth.
+**Fail-closed default:** If `BASIC_AUTH_USER` and `BASIC_AUTH_PASS` are not set, the server refuses to start and logs: "BASIC_AUTH_USER/PASS must be set, or set AUTH_DISABLED=1 to explicitly run without authentication." This prevents accidentally deploying with no auth behind a reverse proxy.
+
+If fronted by a reverse proxy (Caddy/Traefik/nginx-proxy-manager) for TLS, can set `AUTH_DISABLED=1` and handle auth at the proxy level.
 
 ## Backup
 
-Nightly `sqlite3 .backup` to a location outside the LXC's normal storage. Config history and neighbor discovery data takes weeks to accumulate and shouldn't be lost to an LXC snapshot rollback.
+Nightly `sqlite3 .backup`. Config history and neighbor discovery data takes weeks to accumulate and shouldn't be lost to an LXC snapshot rollback.
 
-Simple cron job or systemd timer:
+**Backup destination must be outside the LXC's storage.** An LXC bind mount to the Proxmox host still gets rolled back with the container snapshot. Options:
+1. **Proxmox Backup Server (PBS)**: schedule LXC backup separately from data backup
+2. **Host bind mount + rsync to NAS**: mount a host directory into the LXC at `/mnt/backup`, then rsync from host to NAS
+3. **Direct network push**: `scp` or `rsync` from inside the LXC to NAS
+
+Whichever method, the systemd timer runs inside the LXC:
 ```bash
 sqlite3 /opt/meshcore-dashboard/data/meshcore.db ".backup /mnt/backup/meshcore-$(date +%Y%m%d).db"
 ```
+
+`/mnt/backup/` must be a bind mount from the Proxmox host (configured in LXC config: `mp0: /path/on/host,mp=/mnt/backup`) or a network mount. Verify backups survive an LXC snapshot rollback before relying on them.
 
 ## Project Structure
 
