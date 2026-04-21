@@ -93,7 +93,7 @@ async def test_send_command_ignores_noise_before_prefixed_response(connection):
         b"18:15:39 - 21/4/2026 U: RX, len=66 (type=0, route=F)\r\n",
         b"18:15:40 - 21/4/2026 U: TX, len=63 (type=5, route=F)\r\n",
         b"stats-core\r\n",
-        b"  -> {\"battery_mv\":4170}\r\n",
+        b'  -> {"battery_mv":4170}\r\n',
         b"",
     ])
     mock_serial.readline = MagicMock(side_effect=lambda: next(responses, b""))
@@ -119,7 +119,7 @@ async def test_log_command_stops_at_eof_marker(connection):
         b"18:15:40 - 21/4/2026 U: TX, len=63 (type=5, route=F)\r\n",
         b"  ->    EOF\r\n",
         b"stats-core\r\n",
-        b"  -> {\"battery_mv\":4170}\r\n",
+        b'  -> {"battery_mv":4170}\r\n',
     ])
     mock_serial.readline = MagicMock(side_effect=lambda: next(responses, b""))
 

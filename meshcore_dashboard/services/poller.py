@@ -107,10 +107,7 @@ class Poller:
 
     @property
     def stats_health(self) -> dict[str, dict[str, object | None]]:
-        return {
-            cmd: data.copy()
-            for cmd, data in self._stats_command_health.items()
-        }
+        return {cmd: data.copy() for cmd, data in self._stats_command_health.items()}
 
     @property
     def stats_freshness(self) -> str:
