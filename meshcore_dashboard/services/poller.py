@@ -322,9 +322,7 @@ class Poller:
         """Set the device clock to current UTC epoch seconds."""
         epoch = int(datetime.now(UTC).timestamp())
         try:
-            await self._connection.send_command(
-                f"time {epoch}", timeout=3.0
-            )
+            await self._connection.send_command(f"time {epoch}", timeout=3.0)
             logger.info("Synced device clock to epoch %d", epoch)
         except (ConnectionError, TimeoutError) as e:
             logger.warning("Failed to sync device clock: %s", e)

@@ -84,20 +84,32 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
-        # Flush any stale data from the input buffer
+        # Double-flush to handle race with unsolicited device output
+        await loop.run_in_executor(None, self._serial.reset_input_buffer)
+        await asyncio.sleep(0.05)
         await loop.run_in_executor(None, self._serial.reset_input_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
+        saw_echo = False
         deadline = loop.time() + timeout
         while loop.time() < deadline:
             raw = await loop.run_in_executor(None, self._serial.readline)
             if not raw:
                 break
             line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-            if line:
-                lines.append(line)
-            elif lines:
-                break
+            if not line:
+                if lines:
+                    break
+                continue
+            # Skip unsolicited packet log lines from device
+            if " U: " in line or " D: " in line:
+                continue
+            # Wait for the command echo before collecting response
+            if not saw_echo:
+                if line.strip() == cmd.strip():
+                    saw_echo = True
+                continue
+            lines.append(line)
         self._consecutive_failures = 0
         self._state = ConnectionState.CONNECTED
         return "\r\n".join(lines)
