@@ -84,36 +84,37 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
-        # Double-flush to handle race with unsolicited device output
+        # Flush stale data, wait for any in-progress device output to finish
         await loop.run_in_executor(None, self._serial.reset_input_buffer)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
         await loop.run_in_executor(None, self._serial.reset_input_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
+        saw_response = False
         deadline = loop.time() + timeout
         while loop.time() < deadline:
             raw = await loop.run_in_executor(None, self._serial.readline)
             if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-            if not line:
-                if lines:
+                # Serial timeout with no data — if we already have response
+                # lines, we're done. Otherwise keep waiting until deadline.
+                if saw_response:
                     break
                 continue
-            # Skip unsolicited packet log lines from device
-            if " U: " in line or " D: " in line:
-                continue
-            # Skip command echo
-            if line.strip() == cmd.strip():
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            if not line:
+                if saw_response:
+                    break
                 continue
             lines.append(line)
+            if line.startswith("  -> "):
+                saw_response = True
         self._consecutive_failures = 0
         self._state = ConnectionState.CONNECTED
         return "\r\n".join(lines)
 
     async def get_stats_json(self, cmd: str) -> dict:
         """Send a stats command and parse the JSON response."""
-        raw = await self.send_command(cmd, timeout=1.0)
+        raw = await self.send_command(cmd, timeout=2.0)
         return parse_stats_json(raw)
 
     async def get_config_value(self, key: str) -> str:
