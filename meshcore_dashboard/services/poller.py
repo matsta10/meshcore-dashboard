@@ -214,24 +214,18 @@ class Poller:
         entries: list[PacketLog] = []
 
         for line in raw.splitlines():
-            # Skip command echo, EOF markers, and response prefixes
             stripped = line.strip()
+            # Skip empty, command echo, EOF, and response prefixes
             if (
                 not stripped
                 or stripped == "log"
-                or stripped == "EOF"
+                or "EOF" in stripped
                 or stripped.startswith("  ->")
             ):
-                # Check if it's an EOF line
-                if stripped.startswith("  ->") and "EOF" in stripped:
-                    continue
-                # Skip response prefix lines that aren't log data
-                if stripped.startswith("  ->"):
-                    continue
                 continue
-            # Log lines look like: "HH:MM:SS - DD/M/YYYY U: ..."
-            # or just any non-prefix line with actual data
-            if " U: " in line or " D: " in line:
+            # Log lines contain timestamps like "HH:MM:SS - DD/M/YYYY"
+            # and packet info with "U: " (user) or "D: " (device)
+            if " U: " in stripped or " D: " in stripped:
                 entries.append(
                     PacketLog(timestamp=now, raw_line=stripped)
                 )
