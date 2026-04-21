@@ -63,21 +63,35 @@ class Poller:
         self._poll_count = 0
         self._log_started = False
         self._seen_log_lines: set[str] = set()
+        self._last_parse_error: str | None = None
+
+    @property
+    def is_stale(self) -> bool:
+        """True if the most recent poll had a parse failure."""
+        return self._last_parse_error is not None
+
+    @property
+    def last_parse_error(self) -> str | None:
+        return self._last_parse_error
+
+    def record_parse_error(self, command: str, message: str) -> None:
+        """Mark poller as stale with a formatted error message."""
+        self._last_parse_error = f"{command}: {message}"
+
+    def clear_parse_error(self) -> None:
+        """Clear stale state on successful poll."""
+        self._last_parse_error = None
 
     def start(self) -> None:
         """Start the polling loop."""
         self._task = asyncio.create_task(self._poll_loop())
 
-    async def sync_device_state(
-        self, *, detect_drift: bool
-    ) -> None:
+    async def sync_device_state(self, *, detect_drift: bool) -> None:
         """Refresh a bounded set of config and device info from the repeater."""
         config_values: dict[str, str] = {}
         for key in CONFIG_SYNC_KEYS:
             try:
-                config_values[key] = (
-                    await self._connection.get_config_value(key)
-                )
+                config_values[key] = await self._connection.get_config_value(key)
             except (ConnectionError, TimeoutError, ParseError):
                 logger.debug("Config sync skipped for key %s", key)
 
@@ -87,22 +101,14 @@ class Poller:
 
         async with self._session_factory() as session:
             existing_result = await session.execute(
-                select(ConfigCurrent).where(
-                    ConfigCurrent.key.in_(CONFIG_SYNC_KEYS)
-                )
+                select(ConfigCurrent).where(ConfigCurrent.key.in_(CONFIG_SYNC_KEYS))
             )
-            existing_rows = {
-                row.key: row
-                for row in existing_result.scalars().all()
-            }
+            existing_rows = {row.key: row for row in existing_result.scalars().all()}
 
             for key, new_value in config_values.items():
                 existing = existing_rows.get(key)
                 if existing:
-                    if (
-                        detect_drift
-                        and existing.value != new_value
-                    ):
+                    if detect_drift and existing.value != new_value:
                         session.add(
                             ConfigChangelog(
                                 timestamp=now,
@@ -133,15 +139,9 @@ class Poller:
             device_info.radio_freq = self._parse_optional_float(
                 config_values.get("freq")
             )
-            device_info.radio_bw = self._parse_optional_float(
-                config_values.get("bw")
-            )
-            device_info.radio_sf = self._parse_optional_int(
-                config_values.get("sf")
-            )
-            device_info.radio_cr = self._parse_optional_int(
-                config_values.get("cr")
-            )
+            device_info.radio_bw = self._parse_optional_float(config_values.get("bw"))
+            device_info.radio_sf = self._parse_optional_int(config_values.get("sf"))
+            device_info.radio_cr = self._parse_optional_int(config_values.get("cr"))
             device_info.tx_power = self._parse_optional_int(
                 config_values.get("tx_power")
             )
@@ -151,14 +151,10 @@ class Poller:
 
             await session.commit()
 
-    async def _read_single_line_command(
-        self, cmd: str
-    ) -> str | None:
+    async def _read_single_line_command(self, cmd: str) -> str | None:
         """Read the first response line from a simple serial command."""
         try:
-            raw = await self._connection.send_command(
-                cmd, timeout=1.0
-            )
+            raw = await self._connection.send_command(cmd, timeout=1.0)
         except (ConnectionError, TimeoutError):
             return None
 
@@ -187,9 +183,7 @@ class Poller:
         """Load recent log lines from DB to avoid re-storing them."""
         async with self._session_factory() as session:
             result = await session.execute(
-                select(PacketLog.raw_line)
-                .order_by(PacketLog.id.desc())
-                .limit(500)
+                select(PacketLog.raw_line).order_by(PacketLog.id.desc()).limit(500)
             )
             for (line,) in result:
                 self._seen_log_lines.add(line)
@@ -244,12 +238,16 @@ class Poller:
                     e,
                     e.raw,
                 )
+                self.record_parse_error(cmd, str(e))
             except (ConnectionError, TimeoutError) as e:
                 logger.warning("Command %s failed: %s", cmd, e)
                 return
 
         if not stats_data:
             return
+
+        # Got valid stats — clear any stale state
+        self.clear_parse_error()
 
         # Remap device field names → DB column names
         for old_key, new_key in FIELD_REMAP.items():
@@ -258,9 +256,7 @@ class Poller:
 
         # Check for reboot
         uptime = stats_data.get("uptime_secs")
-        if uptime is not None and self._connection.check_reboot(
-            uptime
-        ):
+        if uptime is not None and self._connection.check_reboot(uptime):
             logger.info("Reboot detected! Re-reading config.")
             self._log_started = False  # Re-start logging after reboot
             await self._log_reboot(uptime)
@@ -294,9 +290,7 @@ class Poller:
         update_last_poll()
 
         # Broadcast to WebSocket clients
-        await ws_router.broadcast(
-            {"type": "stats_update", "data": stats_data}
-        )
+        await ws_router.broadcast({"type": "stats_update", "data": stats_data})
 
         # Collect packet logs every cycle
         await self._collect_logs()
@@ -311,9 +305,7 @@ class Poller:
             entry = ConfigChangelog(
                 timestamp=datetime.now(UTC),
                 key="_meta.reboot",
-                old_value=str(
-                    self._connection._last_uptime or "unknown"
-                ),
+                old_value=str(self._connection._last_uptime or "unknown"),
                 new_value=str(new_uptime),
                 source="detected",
             )
@@ -323,9 +315,7 @@ class Poller:
     async def _ensure_log_started(self) -> None:
         """Send 'log start' to enable packet logging on device."""
         try:
-            await self._connection.send_command(
-                "log start", timeout=3.0
-            )
+            await self._connection.send_command("log start", timeout=3.0)
             self._log_started = True
             logger.info("Packet logging started on device")
         except (ConnectionError, TimeoutError) as e:
@@ -334,9 +324,7 @@ class Poller:
     async def _collect_logs(self) -> None:
         """Fetch log buffer from device and store new entries."""
         try:
-            raw = await self._connection.send_command(
-                "log", timeout=1.0
-            )
+            raw = await self._connection.send_command("log", timeout=1.0)
         except (ConnectionError, TimeoutError):
             return
 
@@ -346,9 +334,7 @@ class Poller:
         for line in parse_log_lines(raw):
             if line not in self._seen_log_lines:
                 self._seen_log_lines.add(line)
-                entries.append(
-                    PacketLog(timestamp=now, raw_line=line)
-                )
+                entries.append(PacketLog(timestamp=now, raw_line=line))
 
         if entries:
             async with self._session_factory() as session:
@@ -358,16 +344,12 @@ class Poller:
 
         # Cap memory: keep only most recent 2000 seen lines
         if len(self._seen_log_lines) > 2000:
-            self._seen_log_lines = set(
-                list(self._seen_log_lines)[-1000:]
-            )
+            self._seen_log_lines = set(list(self._seen_log_lines)[-1000:])
 
     async def _poll_neighbors(self) -> None:
         """Fetch neighbors and upsert into DB."""
         try:
-            raw = await self._connection.send_command(
-                "neighbors", timeout=1.0
-            )
+            raw = await self._connection.send_command("neighbors", timeout=1.0)
         except (ConnectionError, TimeoutError):
             return
 
@@ -396,9 +378,7 @@ class Poller:
 
             async with self._session_factory() as session:
                 result = await session.execute(
-                    select(Neighbor).where(
-                        Neighbor.public_key == pub_key
-                    )
+                    select(Neighbor).where(Neighbor.public_key == pub_key)
                 )
                 existing = result.scalar_one_or_none()
                 if existing:
@@ -418,6 +398,4 @@ class Poller:
                 await session.commit()
 
         # Broadcast neighbor update
-        await ws_router.broadcast(
-            {"type": "neighbor_update", "data": {}}
-        )
+        await ws_router.broadcast({"type": "neighbor_update", "data": {}})
