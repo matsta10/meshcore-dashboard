@@ -39,6 +39,16 @@ def test_parse_stats_json_multiline():
     assert result["battery_mv"] == 4168
 
 
+def test_parse_stats_json_trims_trailing_garbage_after_closing_brace():
+    raw = (
+        '  -> {"recv":3005,"sent":3022,"flood_tx":3000,"direct_tx":22,'
+        '"flood_rx":3002,"direct_rx":3,"recv_errors":0})\r\n'
+    )
+    result = parse_stats_json(raw)
+    assert result["recv"] == 3005
+    assert result["recv_errors"] == 0
+
+
 def test_parse_stats_json_invalid():
     with pytest.raises(ParseError):
         parse_stats_json("  -> not json\r\n")

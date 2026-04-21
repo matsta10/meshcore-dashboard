@@ -38,6 +38,14 @@ def parse_stats_json(raw: str) -> dict:
     try:
         return json.loads(combined)
     except json.JSONDecodeError as e:
+        start = combined.find("{")
+        end = combined.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = combined[start : end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
         raise ParseError(f"Invalid JSON: {e}", raw) from e
 
 
