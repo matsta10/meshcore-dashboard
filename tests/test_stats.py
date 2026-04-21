@@ -17,24 +17,22 @@ from meshcore_dashboard.routers import stats as stats_router
 async def test_stats_history_hourly_falls_back_to_raw_when_hourly_empty():
     engine, session_factory = await create_engine_and_tables("sqlite+aiosqlite://")
     async with session_factory() as session:
-        session.add_all(
-            [
-                StatsSnapshot(
-                    timestamp=datetime(2026, 4, 21, 18, 0, tzinfo=UTC),
-                    battery_mv=4168,
-                    noise_floor=-113,
-                    last_rssi=-18,
-                    last_snr=12.3,
-                ),
-                StatsSnapshot(
-                    timestamp=datetime(2026, 4, 21, 19, 0, tzinfo=UTC),
-                    battery_mv=4167,
-                    noise_floor=-112,
-                    last_rssi=-17,
-                    last_snr=13.1,
-                ),
-            ]
-        )
+        session.add_all([
+            StatsSnapshot(
+                timestamp=datetime(2026, 4, 21, 18, 0, tzinfo=UTC),
+                battery_mv=4168,
+                noise_floor=-113,
+                last_rssi=-18,
+                last_snr=12.3,
+            ),
+            StatsSnapshot(
+                timestamp=datetime(2026, 4, 21, 19, 0, tzinfo=UTC),
+                battery_mv=4167,
+                noise_floor=-112,
+                last_rssi=-17,
+                last_snr=13.1,
+            ),
+        ])
         await session.commit()
 
     app = FastAPI()

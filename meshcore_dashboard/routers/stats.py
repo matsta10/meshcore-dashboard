@@ -127,6 +127,7 @@ async def stats_history(
     requested = {m.strip() for m in metrics.split(",") if m.strip() in VALID_METRICS}
 
     async with _session_factory_ref() as session:
+
         async def load_rows(selected_model: type[StatsSnapshot]) -> list[StatsSnapshot]:
             query = select(selected_model).order_by(selected_model.timestamp.asc())
             if start:
