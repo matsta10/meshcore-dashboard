@@ -46,10 +46,22 @@ class Poller:
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._poll_count = 0
         self._log_started = False
+        self._seen_log_lines: set[str] = set()
 
     def start(self) -> None:
         """Start the polling loop."""
         self._task = asyncio.create_task(self._poll_loop())
+
+    async def _seed_seen_logs(self) -> None:
+        """Load recent log lines from DB to avoid re-storing them."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PacketLog.raw_line)
+                .order_by(PacketLog.id.desc())
+                .limit(500)
+            )
+            for (line,) in result:
+                self._seen_log_lines.add(line)
 
     async def stop(self) -> None:
         """Stop the polling loop."""
@@ -62,6 +74,7 @@ class Poller:
 
     async def _poll_loop(self) -> None:
         """Main polling loop with adaptive interval."""
+        await self._seed_seen_logs()
         while True:
             try:
                 await self._do_poll()
@@ -159,8 +172,8 @@ class Poller:
         # Collect packet logs every cycle
         await self._collect_logs()
 
-        # Poll neighbors periodically
-        if self._poll_count % NEIGHBOR_POLL_INTERVAL == 0:
+        # Poll neighbors periodically (including first cycle)
+        if self._poll_count % NEIGHBOR_POLL_INTERVAL == 1:
             await self._poll_neighbors()
 
     async def _log_reboot(self, new_uptime: int) -> None:
@@ -226,15 +239,23 @@ class Poller:
             # Log lines contain timestamps like "HH:MM:SS - DD/M/YYYY"
             # and packet info with "U: " (user) or "D: " (device)
             if " U: " in stripped or " D: " in stripped:
-                entries.append(
-                    PacketLog(timestamp=now, raw_line=stripped)
-                )
+                if stripped not in self._seen_log_lines:
+                    self._seen_log_lines.add(stripped)
+                    entries.append(
+                        PacketLog(timestamp=now, raw_line=stripped)
+                    )
 
         if entries:
             async with self._session_factory() as session:
                 session.add_all(entries)
                 await session.commit()
             logger.debug("Stored %d log entries", len(entries))
+
+        # Cap memory: keep only most recent 2000 seen lines
+        if len(self._seen_log_lines) > 2000:
+            self._seen_log_lines = set(
+                list(self._seen_log_lines)[-1000:]
+            )
 
     async def _poll_neighbors(self) -> None:
         """Fetch neighbors and upsert into DB."""
