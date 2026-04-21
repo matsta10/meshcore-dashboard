@@ -4,6 +4,7 @@ import pytest
 
 from meshcore_dashboard.serial.parser import (
     ParseError,
+    parse_clock_output,
     parse_config_value,
     parse_log_line,
     parse_log_lines,
@@ -69,9 +70,29 @@ def test_parse_config_value_with_spaces():
     assert parse_config_value(raw) == "Blue Orchid"
 
 
+def test_parse_config_value_prefers_latest_prefixed_value():
+    raw = "  -> > Blue Orchid\r\nclock\r\n  -> > 4\r\n"
+    assert parse_config_value(raw) == "4"
+
+
 def test_parse_config_value_missing():
     with pytest.raises(ParseError):
         parse_config_value("  -> no angle bracket\r\n")
+
+
+def test_parse_clock_output_returns_latest_response_line():
+    raw = (
+        "20:04:27 - 21/4/2026 U: TX, len=49 (type=2, route=F, payload_len=36)\r\n"
+        "  ->    EOF\r\n"
+        "clock\r\n"
+        "  -> 20:22 - 21/4/2026 UTC\r\n"
+    )
+    assert parse_clock_output(raw) == "20:22 - 21/4/2026 UTC"
+
+
+def test_parse_clock_output_missing_response_line():
+    with pytest.raises(ParseError):
+        parse_clock_output("clock\r\nno prefix here\r\n")
 
 
 def test_parse_log_lines():

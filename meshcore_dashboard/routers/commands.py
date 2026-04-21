@@ -18,6 +18,7 @@ from meshcore_dashboard.serial.commands import (
     is_destructive,
 )
 from meshcore_dashboard.serial.connection import RepeaterConnection
+from meshcore_dashboard.serial.parser import ParseError, parse_clock_output
 
 router = APIRouter()
 
@@ -78,7 +79,11 @@ async def execute_command(body: CommandRequest) -> CommandResponse:
 async def read_clock() -> CommandResponse:
     """Read the repeater clock."""
     assert _connection_ref
-    output = await _connection_ref.send_command("clock", timeout=1.0)
+    raw = await _connection_ref.send_command("clock", timeout=1.0)
+    try:
+        output = parse_clock_output(raw)
+    except ParseError:
+        output = raw.strip()
     return CommandResponse(output=output)
 
 

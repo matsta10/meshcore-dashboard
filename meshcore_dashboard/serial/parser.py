@@ -51,10 +51,21 @@ def parse_stats_json(raw: str) -> dict:
 
 def parse_config_value(raw: str) -> str:
     """Extract a config value from a 'get' response."""
+    latest: str | None = None
     for line in raw.splitlines():
         if line.startswith(CONFIG_PREFIX):
-            return line[len(CONFIG_PREFIX) :]
-    raise ParseError("No config value line found", raw)
+            latest = line[len(CONFIG_PREFIX) :]
+    if latest is None:
+        raise ParseError("No config value line found", raw)
+    return latest
+
+
+def parse_clock_output(raw: str) -> str:
+    """Extract the latest clock response line from a noisy serial response."""
+    lines = parse_response_lines(raw)
+    if not lines:
+        raise ParseError("No clock response line found", raw)
+    return lines[-1].strip()
 
 
 def parse_log_lines(raw: str) -> list[str]:

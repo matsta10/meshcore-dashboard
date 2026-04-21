@@ -62,7 +62,12 @@ def test_clock_read_endpoint_returns_device_output(monkeypatch):
     app.include_router(commands_router.router)
 
     mock_connection = AsyncMock()
-    mock_connection.send_command.return_value = "  -> 2026-04-21 15:00:00 UTC\n"
+    mock_connection.send_command.return_value = (
+        "20:04:27 - 21/4/2026 U: TX, len=49 (type=2, route=F, payload_len=36)\n"
+        "  ->    EOF\n"
+        "clock\n"
+        "  -> 2026-04-21 15:00:00 UTC\n"
+    )
     monkeypatch.setattr(commands_router, "_connection_ref", mock_connection)
 
     client = TestClient(app)
@@ -70,7 +75,7 @@ def test_clock_read_endpoint_returns_device_output(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {
-        "output": "  -> 2026-04-21 15:00:00 UTC\n",
+        "output": "2026-04-21 15:00:00 UTC",
     }
     mock_connection.send_command.assert_awaited_once_with(
         "clock",

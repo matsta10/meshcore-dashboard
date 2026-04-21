@@ -2,7 +2,6 @@ import { startTransition, useEffect, useState } from "react"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -46,25 +45,6 @@ const CONFIG_CATEGORIES: ConfigCategory[] = [
     keys: ["owner.info", "adc.multiplier", "powersaving", "password", "guest"],
   },
 ]
-
-const CONFIG_DESCRIPTIONS: Record<string, string> = {
-  freq: "Radio frequency (MHz)",
-  bw: "Bandwidth (kHz)",
-  sf: "Spreading factor",
-  cr: "Coding rate",
-  tx_power: "Transmit power (dBm)",
-  "radio.rxgain": "Boosted receive gain mode on supported SX12xx radios",
-  name: "Device name on mesh",
-  lat: "Latitude for the node's reported position",
-  lon: "Longitude for the node's reported position",
-  "pub.key": "Public key (read-only)",
-  "guest.password": "Guest access password (masked)",
-  "owner.info": "Operator or site information broadcast by the node",
-  "adc.multiplier": "Board-specific battery calibration factor",
-  powersaving: "Repeater power-saving mode",
-  password: "Admin password (masked)",
-  guest: "Guest password (masked)",
-}
 
 function formatTimestamp(value: string): string {
   const parsed = Date.parse(value)
@@ -284,10 +264,6 @@ export default function Config() {
       <Card>
         <CardHeader>
           <CardTitle>Admin</CardTitle>
-          <CardDescription>
-            Low-frequency control actions. Operational status stays on the
-            dashboard; one-off admin actions live here.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
@@ -339,10 +315,6 @@ export default function Config() {
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>
-          <CardDescription>
-            Radio, network, security, and system settings synced from the
-            repeater.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue={visibleCategories[0]?.id}>
@@ -377,11 +349,6 @@ export default function Config() {
                           <TableRow key={key}>
                             <TableCell className="w-44 align-top py-2">
                               <span className="text-xs font-bold">{key}</span>
-                              {CONFIG_DESCRIPTIONS[key] && (
-                                <p className="text-xs text-muted-foreground">
-                                  {CONFIG_DESCRIPTIONS[key]}
-                                </p>
-                              )}
                             </TableCell>
                             <TableCell className="py-2">
                               <div className="flex items-center gap-2">
@@ -438,9 +405,6 @@ export default function Config() {
       <Card>
         <CardHeader>
           <CardTitle>Change History</CardTitle>
-          <CardDescription>
-            Dashboard-applied config writes, newest first.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
