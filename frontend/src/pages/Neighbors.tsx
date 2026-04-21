@@ -16,6 +16,7 @@ import { useWebSocket } from "@/hooks/useWebSocket"
 function relativeTime(dateStr: string): string {
   const now = Date.now()
   const then = new Date(dateStr).getTime()
+  if (Number.isNaN(then)) return "—"
   const diffSecs = Math.floor((now - then) / 1000)
   if (diffSecs < 60) return `${diffSecs}s ago`
   const diffMins = Math.floor(diffSecs / 60)
@@ -74,7 +75,10 @@ export default function Neighbors() {
             <TableBody>
               {neighbors.map((n) => (
                 <TableRow key={n.public_key}>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell
+                    className="max-w-0 truncate font-mono text-xs"
+                    title={n.public_key}
+                  >
                     {n.public_key}
                   </TableCell>
                   <TableCell className="font-mono text-xs">

@@ -31,7 +31,9 @@ function formatCollectedAt(value: string): string {
  */
 function formatLogTime(log: PacketLogEntry): string {
   if (log.device_time_text) {
-    return log.device_time_text
+    return log.device_date_text
+      ? `${log.device_time_text} · ${log.device_date_text}`
+      : log.device_time_text
   }
   return formatCollectedAt(log.collected_at)
 }
