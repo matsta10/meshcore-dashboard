@@ -84,9 +84,10 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
-        # Drain all pending serial data (device streams log lines
-        # continuously). Read with a short timeout until silence.
-        await loop.run_in_executor(None, self._drain_buffer)
+        # The repeater can stream logs continuously, so "read until silence"
+        # never reliably creates a clean command window. Flush the unread
+        # buffer instead so interactive commands start from a known boundary.
+        await loop.run_in_executor(None, self._flush_input_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
         saw_response = False
@@ -109,16 +110,10 @@ class RepeaterConnection:
         self._state = ConnectionState.CONNECTED
         return "\r\n".join(lines)
 
-    def _drain_buffer(self) -> None:
-        """Read and discard all pending serial data until 100ms of silence."""
+    def _flush_input_buffer(self) -> None:
+        """Drop any unread serial data before sending a new command."""
         assert self._serial is not None
-        saved_timeout = self._serial.timeout
-        self._serial.timeout = 0.1
-        try:
-            while self._serial.readline():
-                pass
-        finally:
-            self._serial.timeout = saved_timeout
+        self._serial.reset_input_buffer()
 
     async def get_stats_json(self, cmd: str) -> dict:
         """Send a stats command and parse the JSON response."""
