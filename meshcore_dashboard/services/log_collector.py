@@ -18,6 +18,7 @@ class LogCollectionResult:
 
     lines_seen: int = 0
     parsed_lines: list[ParsedLogLine] = field(default_factory=list)
+    all_fingerprints: list[str] = field(default_factory=list)
     inserted: int = 0
     duplicates_skipped: int = 0
     buffer_changed: bool = False
@@ -50,10 +51,12 @@ class LogCollector:
         buffer_hash = hashlib.sha256("\n".join(raw_lines).encode()).hexdigest()
 
         new_entries: list[ParsedLogLine] = []
+        all_fps: list[str] = []
         duplicates = 0
 
         for line in raw_lines:
             entry = parse_log_line(line)
+            all_fps.append(entry.fingerprint)
             if entry.fingerprint in prior_fingerprints:
                 duplicates += 1
             else:
@@ -62,6 +65,7 @@ class LogCollector:
         return LogCollectionResult(
             lines_seen=len(raw_lines),
             parsed_lines=new_entries,
+            all_fingerprints=all_fps,
             inserted=len(new_entries),
             duplicates_skipped=duplicates,
             buffer_changed=len(new_entries) > 0,

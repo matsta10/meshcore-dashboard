@@ -9,6 +9,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meshcore_dashboard.models import (
@@ -331,13 +332,12 @@ class Poller:
         except (ConnectionError, TimeoutError):
             return
 
-        # Load prior fingerprints from DB
+        # Load prior fingerprints from persisted snapshot (bounded, not full scan)
         prior_fps: set[str] = set()
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(PacketLog.fingerprint).where(PacketLog.fingerprint.is_not(None))
-            )
-            prior_fps = {row[0] for row in result}
+            state = await session.get(LogCollectionState, 1)
+            if state and state.last_snapshot_json:
+                prior_fps = set(json.loads(state.last_snapshot_json))
 
         # Process buffer
         collection = self._log_collector.process_buffer(
@@ -368,21 +368,25 @@ class Poller:
                 )
             )
 
+        inserted = 0
         async with self._session_factory() as session:
             session.add_all(entries)
             try:
                 await session.commit()
+                inserted = len(entries)
+            except IntegrityError:
+                await session.rollback()
+                logger.debug("Fingerprint collision on batch insert, skipping")
             except Exception:
                 await session.rollback()
-                logger.debug("Some log entries already existed (fingerprint collision)")
-                return
+                logger.warning("Unexpected error committing log entries", exc_info=True)
 
-        logger.debug("Stored %d log entries", len(entries))
-
-        await ws_router.broadcast({
-            "type": "logs_update",
-            "data": {"count": len(entries)},
-        })
+        if inserted:
+            logger.debug("Stored %d log entries", inserted)
+            await ws_router.broadcast({
+                "type": "logs_update",
+                "data": {"count": inserted},
+            })
 
         await self._update_collection_state(collection)
 
@@ -405,10 +409,9 @@ class Poller:
             else:
                 state.unchanged_buffer_count = (state.unchanged_buffer_count or 0) + 1
 
-            # Store current fingerprint list for snapshot diffing
-            fps = [p.fingerprint for p in collection.parsed_lines]
-            if fps:
-                state.last_snapshot_json = json.dumps(fps)
+            # Store full buffer fingerprint list for snapshot diffing
+            if collection.all_fingerprints:
+                state.last_snapshot_json = json.dumps(collection.all_fingerprints)
 
             await session.commit()
 
