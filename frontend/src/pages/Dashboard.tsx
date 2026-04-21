@@ -15,13 +15,23 @@ import { useWebSocket } from "@/hooks/useWebSocket"
 import { cn } from "@/lib/utils"
 import { TriangleAlertIcon } from "lucide-react"
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts"
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart"
+import { LineChart, Line, XAxis, YAxis } from "recharts"
+
+const signalChartConfig = {
+  last_rssi: {
+    label: "RSSI",
+    color: "#60a5fa",
+  },
+  noise_floor: {
+    label: "Noise Floor",
+    color: "#f87171",
+  },
+} satisfies ChartConfig
 
 function formatUptime(secs: number | null): string {
   if (secs === null) return "—"
@@ -433,8 +443,8 @@ export default function Dashboard() {
             <CardTitle className="text-sm text-muted-foreground">Signal (24h)</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3">
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={history}>
+            <ChartContainer config={signalChartConfig} className="h-[160px] w-full">
+              <LineChart data={history} accessibilityLayer>
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) =>
@@ -443,27 +453,28 @@ export default function Dashboard() {
                       minute: "2-digit",
                     })
                   }
+                  tickLine={false}
                   tick={{ fontSize: 10 }}
                 />
                 <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
+                <ChartTooltip content={<ChartTooltipContent />} />
                 <Line
                   type="monotone"
                   dataKey="last_rssi"
-                  stroke="#60a5fa"
+                  stroke="var(--color-last_rssi)"
+                  strokeWidth={2}
                   dot={false}
-                  name="RSSI"
                 />
                 <Line
                   type="monotone"
                   dataKey="noise_floor"
-                  stroke="#f87171"
+                  stroke="var(--color-noise_floor)"
+                  strokeWidth={2}
                   dot={false}
                   strokeDasharray="4 2"
-                  name="Noise Floor"
                 />
               </LineChart>
-            </ResponsiveContainer>
+            </ChartContainer>
           </CardContent>
         </Card>
       )}
