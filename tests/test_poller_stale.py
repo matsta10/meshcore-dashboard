@@ -76,11 +76,30 @@ async def test_poller_collects_stats_before_log_dump(monkeypatch):
         async def get_stats_json(self, cmd: str) -> dict[str, int | float]:
             calls.append(cmd)
             if cmd == "stats-core":
-                return {"battery_mv": 4168, "uptime_secs": 120, "queue_len": 1, "errors": 0}
+                return {
+                    "battery_mv": 4168,
+                    "uptime_secs": 120,
+                    "queue_len": 1,
+                    "errors": 0,
+                }
             if cmd == "stats-radio":
-                return {"noise_floor": -109, "last_rssi": -19, "last_snr": 13, "tx_air_secs": 10, "rx_air_secs": 20}
+                return {
+                    "noise_floor": -109,
+                    "last_rssi": -19,
+                    "last_snr": 13,
+                    "tx_air_secs": 10,
+                    "rx_air_secs": 20,
+                }
             if cmd == "stats-packets":
-                return {"recv": 10, "sent": 11, "flood_rx": 9, "flood_tx": 8, "direct_rx": 1, "direct_tx": 2, "recv_errors": 0}
+                return {
+                    "recv": 10,
+                    "sent": 11,
+                    "flood_rx": 9,
+                    "flood_tx": 8,
+                    "direct_rx": 1,
+                    "direct_tx": 2,
+                    "recv_errors": 0,
+                }
             raise AssertionError(f"unexpected stats command: {cmd}")
 
         def check_reboot(self, uptime: int) -> bool:
