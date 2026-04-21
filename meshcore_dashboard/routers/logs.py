@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meshcore_dashboard.models import PacketLog
 from meshcore_dashboard.schemas import PacketLogEntry
 from meshcore_dashboard.serial.connection import RepeaterConnection
+from meshcore_dashboard.services.log_collector import LogCollector
 
 router = APIRouter()
 
@@ -84,13 +85,14 @@ async def fetch_logs() -> dict:
     assert _connection_ref
     assert _session_factory_ref
 
-    from meshcore_dashboard.services.log_collector import LogCollector
-
     raw = await _connection_ref.send_command("log", timeout=10.0)
 
     async with _session_factory_ref() as session:
         result = await session.execute(
-            select(PacketLog.fingerprint).where(PacketLog.fingerprint.is_not(None))
+            select(PacketLog.fingerprint)
+            .where(PacketLog.fingerprint.is_not(None))
+            .order_by(PacketLog.collected_at.desc())
+            .limit(2000)
         )
         prior_fps = {row[0] for row in result}
 

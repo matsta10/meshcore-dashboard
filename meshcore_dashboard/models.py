@@ -140,7 +140,9 @@ class PacketLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     raw_line: Mapped[str] = mapped_column(Text)
-    fingerprint: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    fingerprint: Mapped[str | None] = mapped_column(
+        Text, unique=True, index=True, nullable=True
+    )
     parse_status: Mapped[str] = mapped_column(Text, default="raw_only")
     direction: Mapped[str | None] = mapped_column(Text, nullable=True)
     packet_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
