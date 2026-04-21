@@ -83,7 +83,7 @@ async def read_clock() -> CommandResponse:
     try:
         output = parse_clock_output(raw)
     except ParseError:
-        output = raw.strip()
+        output = "Unavailable"
     return CommandResponse(output=output)
 
 

@@ -83,6 +83,24 @@ def test_clock_read_endpoint_returns_device_output(monkeypatch):
     )
 
 
+def test_clock_read_endpoint_hides_raw_noise_when_clock_parse_fails(monkeypatch):
+    app = FastAPI()
+    app.include_router(commands_router.router)
+
+    mock_connection = AsyncMock()
+    mock_connection.send_command.return_value = (
+        "18:01:10 - 21/4/2026 U: TX, len=33 (type=2, route=F, payload_len=20) [D0 -> 21]\n"
+        "18:01:34 - 21/4/2026 U: RX, len=59 (type=5, route=F, payload_len=51) SNR=14 RSSI=-19 score=1000\n"
+    )
+    monkeypatch.setattr(commands_router, "_connection_ref", mock_connection)
+
+    client = TestClient(app)
+    response = client.post("/api/admin/clock/read")
+
+    assert response.status_code == 200
+    assert response.json() == {"output": "Unavailable"}
+
+
 def test_clock_sync_endpoint_sends_clock_sync(monkeypatch):
     app = FastAPI()
     app.include_router(commands_router.router)
