@@ -9,9 +9,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty"
 import { api } from "@/lib/api"
 import type { NeighborResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
+import { UsersIcon } from "lucide-react"
 
 function relativeTime(dateStr: string): string {
   const now = Date.now()
@@ -55,7 +63,7 @@ export default function Neighbors() {
   }, [lastMessage])
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold">Neighbors</h1>
         <Badge variant="secondary">{neighbors.length}</Badge>
@@ -100,11 +108,18 @@ export default function Neighbors() {
               ))}
               {neighbors.length === 0 && (
                 <TableRow>
-                  <TableCell
-                    colSpan={4}
-                    className="text-center text-muted-foreground"
-                  >
-                    No neighbors discovered yet
+                  <TableCell colSpan={4}>
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <UsersIcon />
+                        </EmptyMedia>
+                        <EmptyTitle>No neighbors discovered yet</EmptyTitle>
+                        <EmptyDescription>
+                          Neighbors appear when this repeater hears zero-hop adverts from nearby nodes.
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
                   </TableCell>
                 </TableRow>
               )}
