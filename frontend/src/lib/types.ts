@@ -63,8 +63,18 @@ export interface NeighborResponse {
 
 export interface PacketLogEntry {
   id: number
-  timestamp: string
+  collected_at: string
   raw_line: string
+  fingerprint: string | null
+  parse_status: string
+  direction: string | null
+  packet_type: number | null
+  route: string | null
+  payload_len: number | null
+  snr: number | null
+  rssi: number | null
+  device_time_text: string | null
+  device_date_text: string | null
 }
 
 export interface WsMessage {

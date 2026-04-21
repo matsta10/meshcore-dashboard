@@ -89,7 +89,7 @@ export default function Logs() {
                 {logs.map((log) => (
                   <TableRow key={log.id}>
                     <TableCell className="text-xs whitespace-nowrap">
-                      {new Date(log.timestamp).toLocaleString()}
+                      {new Date(log.collected_at).toLocaleString()}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
                       {log.raw_line}
