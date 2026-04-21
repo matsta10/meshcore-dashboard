@@ -13,11 +13,20 @@ import {
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
 import type { PacketLogEntry } from "@/lib/types"
+import { useWebSocket } from "@/hooks/useWebSocket"
 
 export default function Logs() {
   const [logs, setLogs] = useState<PacketLogEntry[]>([])
   const [logging, setLogging] = useState(false)
   const [eraseConfirm, setEraseConfirm] = useState("")
+  const { lastMessage } = useWebSocket()
+
+  const refreshLogs = async () => {
+    const nextLogs = await api.getLogs()
+    startTransition(() => {
+      setLogs(nextLogs)
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -32,6 +41,12 @@ export default function Logs() {
     }
   }, [])
 
+  useEffect(() => {
+    if (lastMessage?.type === "logs_update") {
+      void refreshLogs()
+    }
+  }, [lastMessage])
+
   const handleToggleLogging = async (enabled: boolean) => {
     if (enabled) {
       await api.startLogging()
@@ -43,20 +58,14 @@ export default function Logs() {
 
   const handleFetch = async () => {
     await api.fetchLogs()
-    const nextLogs = await api.getLogs()
-    startTransition(() => {
-      setLogs(nextLogs)
-    })
+    await refreshLogs()
   }
 
   const handleErase = async () => {
     if (eraseConfirm !== "erase") return
     await api.eraseLogs()
     setEraseConfirm("")
-    const nextLogs = await api.getLogs()
-    startTransition(() => {
-      setLogs(nextLogs)
-    })
+    await refreshLogs()
   }
 
   return (

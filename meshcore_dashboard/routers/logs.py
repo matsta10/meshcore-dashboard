@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from meshcore_dashboard.models import PacketLog
+from meshcore_dashboard.models import LogCollectionState, PacketLog
 from meshcore_dashboard.schemas import PacketLogEntry
 from meshcore_dashboard.serial.connection import RepeaterConnection
 from meshcore_dashboard.services.log_collector import LogCollector
@@ -26,6 +28,48 @@ def set_dependencies(
     global _connection_ref, _session_factory_ref
     _connection_ref = connection
     _session_factory_ref = session_factory
+
+
+async def _load_prior_fingerprints() -> set[str]:
+    """Load the prior buffer snapshot fingerprints for idempotent ingestion."""
+    assert _session_factory_ref
+    async with _session_factory_ref() as session:
+        state = await session.get(LogCollectionState, 1)
+        if state and state.last_snapshot_json:
+            return set(json.loads(state.last_snapshot_json))
+    return set()
+
+
+async def _update_collection_state(
+    collection: LogCollector,  # type: ignore[type-arg]
+    *,
+    lines_seen: int,
+    all_fingerprints: list[str],
+    inserted: int,
+    buffer_hash: str,
+) -> None:
+    """Persist manual-fetch collection state using the same semantics as the poller."""
+    assert _session_factory_ref
+    now = datetime.now(UTC)
+    async with _session_factory_ref() as session:
+        state = await session.get(LogCollectionState, 1)
+        if state is None:
+            state = LogCollectionState(id=1)
+            session.add(state)
+
+        state.last_polled_at = now
+        state.last_buffer_hash = buffer_hash
+        state.last_buffer_size = lines_seen
+        if all_fingerprints:
+            state.last_snapshot_json = json.dumps(all_fingerprints)
+
+        if inserted > 0:
+            state.last_new_entry_at = now
+            state.unchanged_buffer_count = 0
+        else:
+            state.unchanged_buffer_count = (state.unchanged_buffer_count or 0) + 1
+
+        await session.commit()
 
 
 @router.get("/api/logs")
@@ -86,19 +130,12 @@ async def fetch_logs() -> dict:
     assert _session_factory_ref
 
     raw = await _connection_ref.send_command("log", timeout=10.0)
-
-    async with _session_factory_ref() as session:
-        result = await session.execute(
-            select(PacketLog.fingerprint)
-            .where(PacketLog.fingerprint.is_not(None))
-            .order_by(PacketLog.collected_at.desc())
-            .limit(2000)
-        )
-        prior_fps = {row[0] for row in result}
+    prior_fps = await _load_prior_fingerprints()
 
     collector = LogCollector()
     collection = collector.process_buffer(raw, prior_fingerprints=prior_fps)
 
+    inserted = 0
     if collection.parsed_lines:
         now = datetime.now(UTC)
         entries = [
@@ -120,13 +157,34 @@ async def fetch_logs() -> dict:
         ]
         async with _session_factory_ref() as session:
             session.add_all(entries)
-            await session.commit()
+            try:
+                await session.commit()
+                inserted = len(entries)
+            except IntegrityError:
+                await session.rollback()
+                # Idempotent fallback: insert row-by-row so pre-existing
+                # fingerprints are skipped without failing the whole fetch.
+                for entry in entries:
+                    session.add(entry)
+                    try:
+                        await session.commit()
+                        inserted += 1
+                    except IntegrityError:
+                        await session.rollback()
+
+    await _update_collection_state(
+        collector,
+        lines_seen=collection.lines_seen,
+        all_fingerprints=collection.all_fingerprints,
+        inserted=inserted,
+        buffer_hash=collection.buffer_hash,
+    )
 
     return {
         "detail": (
             f"Fetched {collection.lines_seen} lines,"
-            f" inserted {collection.inserted},"
-            f" skipped {collection.duplicates_skipped} duplicates"
+            f" inserted {inserted},"
+            f" skipped {collection.lines_seen - inserted} duplicates"
         )
     }
 
