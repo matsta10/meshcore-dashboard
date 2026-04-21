@@ -148,8 +148,12 @@ class PacketLog(Base):
     packet_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
     route: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
     snr: Mapped[float | None] = mapped_column(Float, nullable=True)
     rssi: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    src_addr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dst_addr: Mapped[str | None] = mapped_column(Text, nullable=True)
     device_time_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     device_date_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 

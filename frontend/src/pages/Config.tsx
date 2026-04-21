@@ -1,5 +1,11 @@
 import { startTransition, useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +23,13 @@ import type { ConfigChangelogEntry, ConfigEntry } from "@/lib/types"
 
 const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power", "password"])
 
-const CONFIG_CATEGORIES: { id: string; label: string; keys: string[] }[] = [
+type ConfigCategory = {
+  id: string
+  label: string
+  keys: string[]
+}
+
+const CONFIG_CATEGORIES: ConfigCategory[] = [
   { id: "radio", label: "Radio", keys: ["freq", "bw", "sf", "cr", "tx_power"] },
   { id: "network", label: "Network", keys: ["name"] },
   { id: "security", label: "Security", keys: ["pub.key"] },
@@ -42,6 +54,45 @@ function formatTimestamp(value: string): string {
   return new Date(parsed).toLocaleString()
 }
 
+function buildEditValues(entries: ConfigEntry[]): Record<string, string> {
+  return Object.fromEntries(entries.map((entry) => [entry.key, entry.value]))
+}
+
+async function loadConfigData(): Promise<{
+  config: ConfigEntry[]
+  changelog: ConfigChangelogEntry[]
+  editValues: Record<string, string>
+}> {
+  const [config, changelog] = await Promise.all([
+    api.getConfig(),
+    api.getConfigChangelog(),
+  ])
+  return {
+    config,
+    changelog,
+    editValues: buildEditValues(config),
+  }
+}
+
+function getCategoryKeys(
+  category: ConfigCategory,
+  config: ConfigEntry[],
+  configByKey: Record<string, ConfigEntry>,
+  assignedKeys: Set<string>
+): string[] {
+  if (category.id !== "system") {
+    return category.keys.filter((key) => key in configByKey)
+  }
+
+  const uncategorizedKeys = config
+    .map((entry) => entry.key)
+    .filter((key) => !assignedKeys.has(key))
+
+  return [...new Set([...category.keys, ...uncategorizedKeys])].filter(
+    (key) => key in configByKey
+  )
+}
+
 export default function Config() {
   const [config, setConfig] = useState<ConfigEntry[]>([])
   const [changelog, setChangelog] = useState<ConfigChangelogEntry[]>([])
@@ -52,18 +103,11 @@ export default function Config() {
 
   const refreshData = async () => {
     try {
-      const [nextConfig, nextChangelog] = await Promise.all([
-        api.getConfig(),
-        api.getConfigChangelog(),
-      ])
-      const nextValues: Record<string, string> = {}
-      for (const entry of nextConfig) {
-        nextValues[entry.key] = entry.value
-      }
+      const nextData = await loadConfigData()
       startTransition(() => {
-        setConfig(nextConfig)
-        setChangelog(nextChangelog)
-        setEditValues(nextValues)
+        setConfig(nextData.config)
+        setChangelog(nextData.changelog)
+        setEditValues(nextData.editValues)
         setError(null)
       })
     } catch (e) {
@@ -75,19 +119,12 @@ export default function Config() {
     let cancelled = false
     void (async () => {
       try {
-        const [nextConfig, nextChangelog] = await Promise.all([
-          api.getConfig(),
-          api.getConfigChangelog(),
-        ])
+        const nextData = await loadConfigData()
         if (cancelled) return
-        const nextValues: Record<string, string> = {}
-        for (const entry of nextConfig) {
-          nextValues[entry.key] = entry.value
-        }
         startTransition(() => {
-          setConfig(nextConfig)
-          setChangelog(nextChangelog)
-          setEditValues(nextValues)
+          setConfig(nextData.config)
+          setChangelog(nextData.changelog)
+          setEditValues(nextData.editValues)
           setError(null)
         })
       } catch (e) {
@@ -121,6 +158,14 @@ export default function Config() {
     return orig && editValues[key] !== orig.value
   }
 
+  const updateEditValue = (key: string, value: string) => {
+    setEditValues((current) => ({ ...current, [key]: value }))
+  }
+
+  const updateConfirmValue = (key: string, value: string) => {
+    setConfirmValues((current) => ({ ...current, [key]: value }))
+  }
+
   const configByKey = Object.fromEntries(config.map((c) => [c.key, c]))
   const assignedKeys = new Set(
     CONFIG_CATEGORIES.flatMap((category) => category.keys)
@@ -139,10 +184,13 @@ export default function Config() {
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>
+          <CardDescription>
+            Review and update the repeater configuration by category.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue={CONFIG_CATEGORIES[0].id}>
-            <TabsList>
+            <TabsList variant="line">
               {CONFIG_CATEGORIES.map((cat) => (
                 <TabsTrigger key={cat.id} value={cat.id}>
                   {cat.label}
@@ -151,21 +199,26 @@ export default function Config() {
             </TabsList>
 
             {CONFIG_CATEGORIES.map((cat) => {
-              const categoryKeys = (
-                cat.id === "system"
-                  ? config
-                      .map((entry) => entry.key)
-                      .filter((key) => !assignedKeys.has(key))
-                  : cat.keys
-              ).filter((k) => k in configByKey)
+              const categoryKeys = getCategoryKeys(
+                cat,
+                config,
+                configByKey,
+                assignedKeys
+              )
               return (
-                <TabsContent key={cat.id} value={cat.id}>
+                <TabsContent key={cat.id} value={cat.id} className="pt-2">
                   {categoryKeys.length === 0 ? (
                     <p className="py-4 text-center text-xs text-muted-foreground">
                       No settings in this category
                     </p>
                   ) : (
                     <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-44">Setting</TableHead>
+                          <TableHead>Value</TableHead>
+                        </TableRow>
+                      </TableHeader>
                       <TableBody>
                         {categoryKeys.map((key) => {
                           const entry = configByKey[key]
@@ -184,10 +237,7 @@ export default function Config() {
                                   <Input
                                     value={editValues[key] ?? ""}
                                     onChange={(e) =>
-                                      setEditValues((v) => ({
-                                        ...v,
-                                        [key]: e.target.value,
-                                      }))
+                                      updateEditValue(key, e.target.value)
                                     }
                                     type={
                                       entry.value === "***"
@@ -202,10 +252,7 @@ export default function Config() {
                                         placeholder="Confirm value"
                                         value={confirmValues[key] ?? ""}
                                         onChange={(e) =>
-                                          setConfirmValues((v) => ({
-                                            ...v,
-                                            [key]: e.target.value,
-                                          }))
+                                          updateConfirmValue(key, e.target.value)
                                         }
                                         className="font-mono text-xs h-7 w-36"
                                       />
@@ -246,6 +293,9 @@ export default function Config() {
       <Card>
         <CardHeader>
           <CardTitle>Change History</CardTitle>
+          <CardDescription>
+            Recent configuration changes recorded by the dashboard.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>

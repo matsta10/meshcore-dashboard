@@ -374,8 +374,12 @@ class Poller:
                     packet_type=parsed.packet_type,
                     route=parsed.route,
                     payload_len=parsed.payload_len,
+                    total_len=parsed.total_len,
                     snr=parsed.snr,
                     rssi=parsed.rssi,
+                    score=parsed.score,
+                    src_addr=parsed.src_addr,
+                    dst_addr=parsed.dst_addr,
                     device_time_text=parsed.device_time_text,
                     device_date_text=parsed.device_date_text,
                 )

@@ -71,8 +71,12 @@ export interface PacketLogEntry {
   packet_type: number | null
   route: string | null
   payload_len: number | null
+  total_len: number | null
   snr: number | null
   rssi: number | null
+  score: number | null
+  src_addr: string | null
+  dst_addr: string | null
   device_time_text: string | null
   device_date_text: string | null
 }

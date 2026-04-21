@@ -79,19 +79,25 @@ class ParsedLogLine:
     packet_type: int | None = None
     route: str | None = None
     payload_len: int | None = None
+    total_len: int | None = None
     snr: float | None = None
     rssi: int | None = None
+    score: int | None = None
+    src_addr: str | None = None
+    dst_addr: str | None = None
 
 
 # Pattern: "HH:MM:SS - DD/M/YYYY U: RX|TX, len=N (type=N, route=X, payload_len=N) ..."
 _LOG_LINE_RE = re.compile(
     r"(?P<time>\d{2}:\d{2}:\d{2})\s*-\s*"
     r"(?P<date>\d{1,2}/\d{1,2}/\d{4})\s+"
-    r"[UD]:\s*(?P<dir>RX|TX),\s*len=\d+\s*"
+    r"[UD]:\s*(?P<dir>RX|TX),\s*len=(?P<totlen>\d+)\s*"
     r"\(type=(?P<type>\d+),\s*route=(?P<route>\w+),"
     r"\s*payload_len=(?P<plen>\d+)\)"
     r"(?:\s+SNR=(?P<snr>[-\d.]+))?"
     r"(?:\s+RSSI=(?P<rssi>[-\d]+))?"
+    r"(?:\s+score=(?P<score>\d+))?"
+    r"(?:\s+\[(?P<src>[A-Fa-f0-9]+)\s*->\s*(?P<dst>[A-Fa-f0-9]+)\])?"
 )
 
 
@@ -120,6 +126,10 @@ def parse_log_line(raw_line: str) -> ParsedLogLine:
         packet_type=int(m.group("type")),
         route=m.group("route"),
         payload_len=int(m.group("plen")),
+        total_len=int(m.group("totlen")),
         snr=float(m.group("snr")) if m.group("snr") else None,
         rssi=int(m.group("rssi")) if m.group("rssi") else None,
+        score=int(m.group("score")) if m.group("score") else None,
+        src_addr=m.group("src"),
+        dst_addr=m.group("dst"),
     )
