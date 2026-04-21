@@ -277,13 +277,9 @@ class Poller:
         now = datetime.now(UTC)
         stats_data: dict = {}
 
-        # Collect packet logs BEFORE stats to avoid serial buffer contamination
-        # (the log command returns many lines that can bleed into subsequent reads)
-        await self._collect_logs()
-        # Brief pause to let serial line settle after large log dump
-        await asyncio.sleep(0.5)
-
-        # Collect stats from all three commands
+        # Collect stats before the large log dump. Even with streaming logs
+        # disabled, issuing `log` first can leave residual serial noise that
+        # contaminates subsequent prefixed stats commands.
         failed_commands: list[str] = []
         for cmd in ("stats-core", "stats-radio", "stats-packets"):
             try:
@@ -364,6 +360,10 @@ class Poller:
 
         # Broadcast to WebSocket clients
         await ws_router.broadcast({"type": "stats_update", "data": stats_data})
+
+        # Fetch the log buffer after stats so any residual `log` noise does not
+        # poison the higher-value telemetry commands in this cycle.
+        await self._collect_logs()
 
         # Poll neighbors periodically (including first cycle)
         if self._poll_count % NEIGHBOR_POLL_INTERVAL == 1:
