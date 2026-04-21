@@ -1,6 +1,8 @@
 import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -10,6 +12,8 @@ import {
 import { api } from "@/lib/api"
 import type { StatusResponse, StatsResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
+import { cn } from "@/lib/utils"
+import { TriangleAlertIcon } from "lucide-react"
 import {
   LineChart,
   Line,
@@ -38,16 +42,20 @@ function formatDateTime(value: string | null): string {
 
 function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: boolean }) {
   const label = !wsConnected ? "reconnecting" : state
-  const color = !wsConnected
-    ? "bg-yellow-500 animate-pulse"
-    : state === "connected"
-      ? "bg-green-500"
-      : state === "unresponsive"
-        ? "bg-yellow-500"
-        : "bg-red-500"
   return (
     <Badge variant="outline" className="gap-1.5">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          !wsConnected
+            ? "bg-destructive animate-pulse"
+            : state === "connected"
+              ? "bg-green-500"
+              : state === "unresponsive"
+                ? "bg-yellow-500"
+                : "bg-destructive"
+        )}
+      />
       {label}
     </Badge>
   )
@@ -166,7 +174,7 @@ export default function Dashboard() {
   const telemetry = status?.telemetry
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {/* Header bar */}
       <div className="flex items-center justify-between">
         <div>
@@ -184,11 +192,15 @@ export default function Dashboard() {
       </div>
 
       {stale && (
-        <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-200">
-          {stats?.freshness === "partial"
-            ? `Telemetry is partial: ${unhealthyStats.map(([name]) => name).join(", ")} need attention`
-            : stats?.stale_reason ?? "Device response could not be parsed — stats may be outdated"}
-        </div>
+        <Alert>
+          <TriangleAlertIcon data-icon />
+          <AlertTitle>Telemetry Degraded</AlertTitle>
+          <AlertDescription>
+            {stats?.freshness === "partial"
+              ? `Telemetry is partial: ${unhealthyStats.map(([name]) => name).join(", ")} need attention`
+              : stats?.stale_reason ?? "Device response could not be parsed — stats may be outdated"}
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid grid-cols-2 gap-4">
@@ -202,13 +214,17 @@ export default function Dashboard() {
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Snapshot</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {formatDateTime(stats?.timestamp ?? null)}
+                    {stats
+                      ? formatDateTime(stats.timestamp ?? null)
+                      : <Skeleton className="h-4 w-32 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Freshness</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.freshness ?? "unknown"}
+                    {stats
+                      ? (stats.freshness ?? "unknown")
+                      : <Skeleton className="h-4 w-16 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
@@ -244,13 +260,17 @@ export default function Dashboard() {
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Last poll</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {formatDateTime(telemetry?.logs.last_log_poll_at ?? null)}
+                    {telemetry
+                      ? formatDateTime(telemetry.logs.last_log_poll_at ?? null)
+                      : <Skeleton className="h-4 w-32 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Last insert</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {formatDateTime(telemetry?.logs.last_log_insert_at ?? null)}
+                    {telemetry
+                      ? formatDateTime(telemetry.logs.last_log_insert_at ?? null)
+                      : <Skeleton className="h-4 w-32 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
@@ -262,7 +282,9 @@ export default function Dashboard() {
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Collector error</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {telemetry?.logs.last_log_error ?? "—"}
+                    {telemetry
+                      ? (telemetry.logs.last_log_error ?? "none")
+                      : <Skeleton className="h-4 w-24 ml-auto" />}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -284,25 +306,33 @@ export default function Dashboard() {
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Battery</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.battery_mv != null ? `${stats.battery_mv} mV` : "—"}
+                    {stats?.battery_mv != null
+                      ? `${stats.battery_mv} mV`
+                      : <Skeleton className="h-4 w-16 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Uptime</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {formatUptime(stats?.uptime_secs ?? null)}
+                    {stats?.uptime_secs != null
+                      ? formatUptime(stats.uptime_secs)
+                      : <Skeleton className="h-4 w-12 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Queue</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.queue_len ?? "—"}
+                    {stats?.queue_len != null
+                      ? stats.queue_len
+                      : <Skeleton className="h-4 w-8 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Errors</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.errors ?? "—"}
+                    {stats?.errors != null
+                      ? stats.errors
+                      : <Skeleton className="h-4 w-8 ml-auto" />}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -320,32 +350,42 @@ export default function Dashboard() {
               <TableBody>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">RSSI</TableCell>
-                  <TableCell className="text-xs py-1.5 font-mono text-right text-blue-400">
-                    {stats?.last_rssi != null ? `${stats.last_rssi} dBm` : "—"}
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.last_rssi != null
+                      ? <Badge variant="secondary">{stats.last_rssi} dBm</Badge>
+                      : <Skeleton className="h-4 w-16 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">SNR</TableCell>
-                  <TableCell className="text-xs py-1.5 font-mono text-right text-blue-400">
-                    {stats?.last_snr != null ? `${stats.last_snr.toFixed(1)} dB` : "—"}
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.last_snr != null
+                      ? <Badge variant="secondary">{stats.last_snr.toFixed(1)} dB</Badge>
+                      : <Skeleton className="h-4 w-14 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">Noise Floor</TableCell>
-                  <TableCell className="text-xs py-1.5 font-mono text-right text-red-400">
-                    {stats?.noise_floor != null ? `${stats.noise_floor} dBm` : "—"}
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.noise_floor != null
+                      ? <span className="text-destructive">{stats.noise_floor} dBm</span>
+                      : <Skeleton className="h-4 w-16 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">TX Air</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.tx_air_secs != null ? `${stats.tx_air_secs}s` : "—"}
+                    {stats?.tx_air_secs != null
+                      ? `${stats.tx_air_secs}s`
+                      : <Skeleton className="h-4 w-12 ml-auto" />}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="text-xs py-1.5 text-muted-foreground">RX Air</TableCell>
                   <TableCell className="text-xs py-1.5 font-mono text-right">
-                    {stats?.rx_air_secs != null ? `${stats.rx_air_secs}s` : "—"}
+                    {stats?.rx_air_secs != null
+                      ? `${stats.rx_air_secs}s`
+                      : <Skeleton className="h-4 w-12 ml-auto" />}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -360,19 +400,27 @@ export default function Dashboard() {
           <div className="grid grid-cols-4 gap-4">
             <div className="flex flex-col items-center gap-1">
               <span className="text-xs text-muted-foreground">Flood RX</span>
-              <span className="font-mono text-sm">{stats?.flood_rx ?? "—"}</span>
+              <span className="font-mono text-sm">
+                {stats?.flood_rx != null ? stats.flood_rx : <Skeleton className="h-4 w-8" />}
+              </span>
             </div>
             <div className="flex flex-col items-center gap-1">
               <span className="text-xs text-muted-foreground">Flood TX</span>
-              <span className="font-mono text-sm">{stats?.flood_tx ?? "—"}</span>
+              <span className="font-mono text-sm">
+                {stats?.flood_tx != null ? stats.flood_tx : <Skeleton className="h-4 w-8" />}
+              </span>
             </div>
             <div className="flex flex-col items-center gap-1">
               <span className="text-xs text-muted-foreground">Direct RX</span>
-              <span className="font-mono text-sm">{stats?.direct_rx ?? "—"}</span>
+              <span className="font-mono text-sm">
+                {stats?.direct_rx != null ? stats.direct_rx : <Skeleton className="h-4 w-8" />}
+              </span>
             </div>
             <div className="flex flex-col items-center gap-1">
               <span className="text-xs text-muted-foreground">Direct TX</span>
-              <span className="font-mono text-sm">{stats?.direct_tx ?? "—"}</span>
+              <span className="font-mono text-sm">
+                {stats?.direct_tx != null ? stats.direct_tx : <Skeleton className="h-4 w-8" />}
+              </span>
             </div>
           </div>
         </CardContent>
