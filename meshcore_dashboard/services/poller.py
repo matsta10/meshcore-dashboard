@@ -398,11 +398,21 @@ class Poller:
                 inserted = len(entries)
             except IntegrityError:
                 await session.rollback()
-                logger.debug("Fingerprint collision on batch insert, skipping")
+                logger.debug(
+                    "Fingerprint collision on batch insert, retrying row-by-row"
+                )
+                for entry in entries:
+                    session.add(entry)
+                    try:
+                        await session.commit()
+                        inserted += 1
+                    except IntegrityError:
+                        await session.rollback()
             except Exception:
                 await session.rollback()
                 logger.warning("Unexpected error committing log entries", exc_info=True)
 
+        collection.inserted = inserted
         if inserted:
             logger.debug("Stored %d log entries", inserted)
             await ws_router.broadcast({
