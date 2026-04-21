@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -27,11 +27,11 @@ import { CartesianGrid, LineChart, Line, XAxis, YAxis } from "recharts"
 const signalChartConfig = {
   last_rssi: {
     label: "RSSI",
-    color: "#60a5fa",
+    color: "var(--chart-1)",
   },
   noise_floor: {
     label: "Noise Floor",
-    color: "#f87171",
+    color: "var(--chart-2)",
   },
 } satisfies ChartConfig
 
@@ -442,7 +442,8 @@ export default function Dashboard() {
       {history.length > 0 && (
         <Card>
           <CardHeader className="pb-1 pt-3 px-4">
-            <CardTitle className="text-sm text-muted-foreground">Signal (24h)</CardTitle>
+            <CardTitle>Signal</CardTitle>
+            <CardDescription>RSSI and noise floor over the last 24 hours</CardDescription>
           </CardHeader>
           <CardContent className="px-4 pb-3">
             <ChartContainer config={signalChartConfig} className="h-[200px] w-full">
