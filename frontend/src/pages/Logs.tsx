@@ -1,10 +1,17 @@
 import { startTransition, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription } from "@/components/ui/card"
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty"
 import { api } from "@/lib/api"
 import type { PacketLogEntry } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
-import { cn } from "@/lib/utils"
+import { ScrollTextIcon } from "lucide-react"
 
 const FETCH_LIMIT = 500
 
@@ -82,7 +89,7 @@ export default function Logs() {
   }, [lastMessage])
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Packet Logs</h1>
         <Badge variant="outline">Showing {logs.length} recent</Badge>
@@ -100,15 +107,24 @@ export default function Logs() {
         <CardContent className="p-0">
           <div className="max-h-[calc(100vh-10rem)] overflow-y-auto divide-y divide-border">
             {logs.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                Waiting for packet logs from the device.
-              </p>
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ScrollTextIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No packet logs yet</EmptyTitle>
+                  <EmptyDescription>
+                    Logs will appear once the collector starts polling the
+                    device.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             ) : null}
             {logs.map((log) => {
               if (log.parse_status === "raw_only") {
                 const deviceClock = formatDeviceClock(log)
                 return (
-                  <div key={log.id} className="px-3 py-2 space-y-1">
+                  <div key={log.id} className="px-3 py-2 flex flex-col gap-1">
                     <div className="font-mono text-[11px] text-muted-foreground flex flex-wrap gap-x-3">
                       <span>{formatLogTime(log)}</span>
                       {deviceClock && (
@@ -131,32 +147,21 @@ export default function Logs() {
               return (
                 <div key={log.id} className="px-3 py-2 flex gap-3">
                   {/* Left: type badge + details */}
-                  <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                     {/* Header line: route badge + type name */}
                     <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold shrink-0",
-                          log.route === "D"
-                            ? "bg-purple-500/20 text-purple-400"
-                            : "bg-blue-500/20 text-blue-400"
-                        )}
+                      <Badge
+                        variant="outline"
+                        className="size-5 justify-center text-[10px] font-bold shrink-0 p-0"
                       >
                         {log.route ?? "?"}
-                      </span>
+                      </Badge>
                       <span className="font-mono text-xs font-semibold truncate">
                         {typeName}
                       </span>
-                      <span
-                        className={cn(
-                          "text-[10px] font-mono",
-                          log.direction === "TX"
-                            ? "text-green-400"
-                            : "text-blue-400"
-                        )}
-                      >
+                      <Badge variant="secondary" className="text-[10px] font-mono">
                         {log.direction}
-                      </span>
+                      </Badge>
                     </div>
 
                     {/* Detail line */}
@@ -176,9 +181,9 @@ export default function Logs() {
                         </span>
                       )}
                       {log.score != null && log.score < 1000 && (
-                        <span className="text-yellow-400">
+                        <Badge variant="outline" className="text-[10px]">
                           score={log.score}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   </div>
@@ -186,9 +191,9 @@ export default function Logs() {
                   {/* Right: SNR */}
                   {isRx && log.snr != null && (
                     <div className="shrink-0 text-right">
-                      <span className="font-mono text-xs font-semibold text-green-400">
+                      <Badge variant="secondary" className="font-mono text-xs font-semibold">
                         {log.snr.toFixed(1)}dB
-                      </span>
+                      </Badge>
                       {log.rssi != null && (
                         <p className="font-mono text-[10px] text-muted-foreground">
                           {log.rssi}dBm
