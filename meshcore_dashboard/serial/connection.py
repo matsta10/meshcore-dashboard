@@ -9,7 +9,6 @@ from enum import Enum
 import serial
 
 from meshcore_dashboard.serial.parser import (
-    ParseError,
     parse_config_value,
     parse_stats_json,
 )
@@ -48,17 +47,13 @@ class RepeaterConnection:
     async def connect(self) -> None:
         """Open the serial port."""
         try:
-            self._serial = serial.Serial(
-                self._port, self._baud, timeout=1
-            )
+            self._serial = serial.Serial(self._port, self._baud, timeout=1)
             self._state = ConnectionState.CONNECTED
             self._consecutive_failures = 0
             logger.info("Connected to %s", self._port)
         except serial.SerialException as e:
             self._state = ConnectionState.DISCONNECTED
-            raise ConnectionError(
-                f"Cannot open {self._port}: {e}"
-            ) from e
+            raise ConnectionError(f"Cannot open {self._port}: {e}") from e
 
     async def disconnect(self) -> None:
         """Close the serial port."""
@@ -67,14 +62,9 @@ class RepeaterConnection:
         self._serial = None
         self._state = ConnectionState.DISCONNECTED
 
-    async def send_command(
-        self, cmd: str, timeout: float = 1.0
-    ) -> str:
+    async def send_command(self, cmd: str, timeout: float = 1.0) -> str:
         """Send a command and return the raw response."""
-        if (
-            self._state == ConnectionState.DISCONNECTED
-            or not self._serial
-        ):
+        if self._state == ConnectionState.DISCONNECTED or not self._serial:
             raise ConnectionError("Not connected")
 
         try:
@@ -94,20 +84,16 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, self._serial.write, f"{cmd}\r".encode()
-        )
+        # Flush any stale data from the input buffer
+        await loop.run_in_executor(None, self._serial.reset_input_buffer)
+        await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
         deadline = loop.time() + timeout
         while loop.time() < deadline:
-            raw = await loop.run_in_executor(
-                None, self._serial.readline
-            )
+            raw = await loop.run_in_executor(None, self._serial.readline)
             if not raw:
                 break
-            line = raw.decode("utf-8", errors="replace").rstrip(
-                "\r\n"
-            )
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
             if line:
                 lines.append(line)
             elif lines:
@@ -126,21 +112,14 @@ class RepeaterConnection:
         raw = await self.send_command(f"get {key}", timeout=1.0)
         return parse_config_value(raw)
 
-    async def set_config_value(
-        self, key: str, value: str
-    ) -> bool:
+    async def set_config_value(self, key: str, value: str) -> bool:
         """Set a config value on the device."""
-        await self.send_command(
-            f"set {key} {value}", timeout=3.0
-        )
+        await self.send_command(f"set {key} {value}", timeout=3.0)
         return True
 
     def check_reboot(self, uptime_secs: int) -> bool:
         """Return True if reboot detected (uptime regression)."""
-        if (
-            self._last_uptime is not None
-            and uptime_secs < self._last_uptime
-        ):
+        if self._last_uptime is not None and uptime_secs < self._last_uptime:
             self._last_uptime = uptime_secs
             return True
         self._last_uptime = uptime_secs

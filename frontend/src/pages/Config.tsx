@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { startTransition, useEffect, useState } from "react"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -14,7 +21,77 @@ import {
 import { api } from "@/lib/api"
 import type { ConfigChangelogEntry, ConfigEntry } from "@/lib/types"
 
-const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power"])
+const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power", "password"])
+
+type ConfigCategory = {
+  id: string
+  label: string
+  keys: string[]
+}
+
+const CONFIG_CATEGORIES: ConfigCategory[] = [
+  { id: "radio", label: "Radio", keys: ["freq", "bw", "sf", "cr", "tx_power"] },
+  { id: "network", label: "Network", keys: ["name"] },
+  { id: "security", label: "Security", keys: ["pub.key"] },
+  { id: "system", label: "System", keys: ["password", "guest"] },
+]
+
+const CONFIG_DESCRIPTIONS: Record<string, string> = {
+  freq: "Radio frequency (MHz)",
+  bw: "Bandwidth (kHz)",
+  sf: "Spreading factor",
+  cr: "Coding rate",
+  tx_power: "Transmit power (dBm)",
+  name: "Device name on mesh",
+  "pub.key": "Public key (read-only)",
+  password: "Admin password (masked)",
+  guest: "Guest password (masked)",
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return "—"
+  return new Date(parsed).toLocaleString()
+}
+
+function buildEditValues(entries: ConfigEntry[]): Record<string, string> {
+  return Object.fromEntries(entries.map((entry) => [entry.key, entry.value]))
+}
+
+async function loadConfigData(): Promise<{
+  config: ConfigEntry[]
+  changelog: ConfigChangelogEntry[]
+  editValues: Record<string, string>
+}> {
+  const [config, changelog] = await Promise.all([
+    api.getConfig(),
+    api.getConfigChangelog(),
+  ])
+  return {
+    config,
+    changelog,
+    editValues: buildEditValues(config),
+  }
+}
+
+function getCategoryKeys(
+  category: ConfigCategory,
+  config: ConfigEntry[],
+  configByKey: Record<string, ConfigEntry>,
+  assignedKeys: Set<string>
+): string[] {
+  if (category.id !== "system") {
+    return category.keys.filter((key) => key in configByKey)
+  }
+
+  const uncategorizedKeys = config
+    .map((entry) => entry.key)
+    .filter((key) => !assignedKeys.has(key))
+
+  return [...new Set([...category.keys, ...uncategorizedKeys])].filter(
+    (key) => key in configByKey
+  )
+}
 
 export default function Config() {
   const [config, setConfig] = useState<ConfigEntry[]>([])
@@ -22,24 +99,42 @@ export default function Config() {
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [confirmValues, setConfirmValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
-    const [c, cl] = await Promise.all([
-      api.getConfig(),
-      api.getConfigChangelog(),
-    ])
-    setConfig(c)
-    setChangelog(cl)
-    const vals: Record<string, string> = {}
-    for (const entry of c) {
-      vals[entry.key] = entry.value
+  const refreshData = async () => {
+    try {
+      const nextData = await loadConfigData()
+      startTransition(() => {
+        setConfig(nextData.config)
+        setChangelog(nextData.changelog)
+        setEditValues(nextData.editValues)
+        setError(null)
+      })
+    } catch (e) {
+      setError(`Failed to load config: ${e}`)
     }
-    setEditValues(vals)
-  }, [])
+  }
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    let cancelled = false
+    void (async () => {
+      try {
+        const nextData = await loadConfigData()
+        if (cancelled) return
+        startTransition(() => {
+          setConfig(nextData.config)
+          setChangelog(nextData.changelog)
+          setEditValues(nextData.editValues)
+          setError(null)
+        })
+      } catch (e) {
+        if (!cancelled) setError(`Failed to load config: ${e}`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSave = async (key: string) => {
     setSaving(key)
@@ -49,20 +144,12 @@ export default function Config() {
         ? confirmValues[key]
         : undefined
       await api.setConfig(key, value, confirm_value)
-      await fetchData()
+      setConfirmValues((v) => ({ ...v, [key]: "" }))
+      await refreshData()
     } catch (e) {
-      alert(`Error: ${e}`)
+      setError(`Error saving ${key}: ${e}`)
     } finally {
       setSaving(null)
-    }
-  }
-
-  const handleRevert = async (key: string) => {
-    try {
-      await api.revertConfig(key)
-      await fetchData()
-    } catch (e) {
-      alert(`Error: ${e}`)
     }
   }
 
@@ -71,64 +158,144 @@ export default function Config() {
     return orig && editValues[key] !== orig.value
   }
 
+  const updateEditValue = (key: string, value: string) => {
+    setEditValues((current) => ({ ...current, [key]: value }))
+  }
+
+  const updateConfirmValue = (key: string, value: string) => {
+    setConfirmValues((current) => ({ ...current, [key]: value }))
+  }
+
+  const configByKey = Object.fromEntries(config.map((c) => [c.key, c]))
+  const assignedKeys = new Set(
+    CONFIG_CATEGORIES.flatMap((category) => category.keys)
+  )
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <h1 className="text-2xl font-bold">Configuration</h1>
+
+      {error && (
+        <div className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+          {error}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>
+          <CardDescription>
+            Review and update the repeater configuration by category.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {config.map((entry) => (
-            <div
-              key={entry.key}
-              className="flex items-center gap-3 border-b pb-3"
-            >
-              <div className="w-40 shrink-0">
-                <span className="text-sm font-medium">{entry.key}</span>
-                {isDirty(entry.key) && (
-                  <Badge variant="outline" className="ml-2 text-xs">
-                    modified
-                  </Badge>
-                )}
-              </div>
-              <Input
-                value={editValues[entry.key] ?? ""}
-                onChange={(e) =>
-                  setEditValues((v) => ({ ...v, [entry.key]: e.target.value }))
-                }
-                type={entry.value === "***" ? "password" : "text"}
-                className="flex-1"
-              />
-              {CRITICAL_PARAMS.has(entry.key) && isDirty(entry.key) && (
-                <Input
-                  placeholder="Confirm value"
-                  value={confirmValues[entry.key] ?? ""}
-                  onChange={(e) =>
-                    setConfirmValues((v) => ({
-                      ...v,
-                      [entry.key]: e.target.value,
-                    }))
-                  }
-                  className="w-40"
-                />
-              )}
-              <Button
-                size="sm"
-                onClick={() => handleSave(entry.key)}
-                disabled={!isDirty(entry.key) || saving === entry.key}
-              >
-                {saving === entry.key ? "..." : "Save"}
-              </Button>
-            </div>
-          ))}
+        <CardContent>
+          <Tabs defaultValue={CONFIG_CATEGORIES[0].id}>
+            <TabsList variant="line">
+              {CONFIG_CATEGORIES.map((cat) => (
+                <TabsTrigger key={cat.id} value={cat.id}>
+                  {cat.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {CONFIG_CATEGORIES.map((cat) => {
+              const categoryKeys = getCategoryKeys(
+                cat,
+                config,
+                configByKey,
+                assignedKeys
+              )
+              return (
+                <TabsContent key={cat.id} value={cat.id} className="pt-2">
+                  {categoryKeys.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-muted-foreground">
+                      No settings in this category
+                    </p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-44">Setting</TableHead>
+                          <TableHead>Value</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {categoryKeys.map((key) => {
+                          const entry = configByKey[key]
+                          return (
+                            <TableRow key={key}>
+                              <TableCell className="w-44 align-top py-2">
+                                <span className="text-xs font-bold">{key}</span>
+                                {CONFIG_DESCRIPTIONS[key] && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {CONFIG_DESCRIPTIONS[key]}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell className="py-2">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={editValues[key] ?? ""}
+                                    onChange={(e) =>
+                                      updateEditValue(key, e.target.value)
+                                    }
+                                    type={
+                                      entry.value === "***"
+                                        ? "password"
+                                        : "text"
+                                    }
+                                    className="font-mono text-xs h-7 flex-1"
+                                  />
+                                  {CRITICAL_PARAMS.has(key) &&
+                                    isDirty(key) && (
+                                      <Input
+                                        placeholder="Confirm value"
+                                        value={confirmValues[key] ?? ""}
+                                        onChange={(e) =>
+                                          updateConfirmValue(key, e.target.value)
+                                        }
+                                        className="font-mono text-xs h-7 w-36"
+                                      />
+                                    )}
+                                  {isDirty(key) && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs shrink-0"
+                                    >
+                                      modified
+                                    </Badge>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleSave(key)}
+                                    disabled={
+                                      !isDirty(key) || saving === key
+                                    }
+                                    className="shrink-0"
+                                  >
+                                    {saving === key ? "..." : "Save"}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+              )
+            })}
+          </Tabs>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle>Change History</CardTitle>
+          <CardDescription>
+            Recent configuration changes recorded by the dashboard.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -136,41 +303,38 @@ export default function Config() {
               <TableRow>
                 <TableHead>Time</TableHead>
                 <TableHead>Key</TableHead>
-                <TableHead>Old</TableHead>
-                <TableHead>New</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead></TableHead>
+                <TableHead>Old → New</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {changelog.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="text-xs">
-                    {new Date(entry.timestamp).toLocaleString()}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {entry.key}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {entry.old_value ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm">{entry.new_value}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{entry.source}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {entry.old_value && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleRevert(entry.key)}
-                      >
-                        Revert
-                      </Button>
-                    )}
+              {changelog.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={3}
+                    className="text-center text-xs text-muted-foreground py-4"
+                  >
+                    No changes recorded
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                changelog.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="text-xs py-1.5">
+                      {formatTimestamp(entry.timestamp)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs py-1.5">
+                      {entry.key}
+                    </TableCell>
+                    <TableCell className="text-xs py-1.5">
+                      <span className="text-muted-foreground">
+                        {entry.old_value ?? "—"}
+                      </span>
+                      {" → "}
+                      <span>{entry.new_value}</span>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

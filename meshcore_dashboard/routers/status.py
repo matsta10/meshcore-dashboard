@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Response
 from sqlalchemy import select
@@ -36,20 +36,17 @@ def set_dependencies(
 def update_last_poll() -> None:
     """Called by poller after successful poll."""
     global _last_poll_time
-    _last_poll_time = datetime.now(timezone.utc)
+    _last_poll_time = datetime.now(UTC)
 
 
 @router.get("/api/health")
 async def health(response: Response) -> HealthResponse:
     """Returns 200 if last poll <5min ago, 503 otherwise."""
     if _last_poll_time is None or (
-        datetime.now(timezone.utc) - _last_poll_time
-        > timedelta(minutes=5)
+        datetime.now(UTC) - _last_poll_time > timedelta(minutes=5)
     ):
         response.status_code = 503
-        return HealthResponse(
-            status="unhealthy", last_poll=_last_poll_time
-        )
+        return HealthResponse(status="unhealthy", last_poll=_last_poll_time)
     return HealthResponse(status="ok", last_poll=_last_poll_time)
 
 
@@ -59,9 +56,7 @@ async def status() -> StatusResponse:
     device_info = None
     if _session_factory_ref:
         async with _session_factory_ref() as session:
-            result = await session.execute(
-                select(DeviceInfo).where(DeviceInfo.id == 1)
-            )
+            result = await session.execute(select(DeviceInfo).where(DeviceInfo.id == 1))
             row = result.scalar_one_or_none()
             if row:
                 device_info = DeviceInfoResponse(
@@ -76,16 +71,8 @@ async def status() -> StatusResponse:
                     tx_power=row.tx_power,
                 )
 
-    state = (
-        _connection_ref.state.value
-        if _connection_ref
-        else "disconnected"
-    )
-    failures = (
-        _connection_ref.consecutive_failures
-        if _connection_ref
-        else 0
-    )
+    state = _connection_ref.state.value if _connection_ref else "disconnected"
+    failures = _connection_ref.consecutive_failures if _connection_ref else 0
     return StatusResponse(
         connection_state=state,
         device_info=device_info,

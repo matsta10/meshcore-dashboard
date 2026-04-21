@@ -45,33 +45,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ value, confirm_value }),
     }),
-  revertConfig: (key: string) =>
-    request<import("./types").ConfigChangelogEntry>(
-      `/api/config/${key}/revert`,
-      { method: "POST" }
-    ),
   getNeighbors: () =>
     request<import("./types").NeighborResponse[]>("/api/neighbors"),
-  discoverNeighbors: () =>
-    request<{ detail: string }>("/api/neighbors/discover", { method: "POST" }),
   getLogs: (limit = 100, offset = 0) =>
     request<import("./types").PacketLogEntry[]>(
       `/api/logs?limit=${limit}&offset=${offset}`
     ),
-  startLogging: () =>
-    request<{ detail: string }>("/api/logs/start", { method: "POST" }),
-  stopLogging: () =>
-    request<{ detail: string }>("/api/logs/stop", { method: "POST" }),
-  fetchLogs: () =>
-    request<{ detail: string }>("/api/logs/fetch", { method: "POST" }),
-  eraseLogs: () =>
-    request<{ detail: string }>("/api/logs/erase", {
-      method: "POST",
-      body: JSON.stringify({ confirm: true }),
-    }),
-  executeCommand: (command: string, confirm = false) =>
-    request<{ output: string }>("/api/command", {
-      method: "POST",
-      body: JSON.stringify({ command, confirm }),
-    }),
 }

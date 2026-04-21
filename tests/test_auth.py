@@ -10,9 +10,7 @@ from meshcore_dashboard.middleware.auth import BasicAuthMiddleware
 @pytest.fixture
 def app_with_auth():
     app = FastAPI()
-    app.add_middleware(
-        BasicAuthMiddleware, username="admin", password="secret"
-    )
+    app.add_middleware(BasicAuthMiddleware, username="admin", password="secret")
 
     @app.get("/api/health")
     def health():

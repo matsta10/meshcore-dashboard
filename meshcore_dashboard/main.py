@@ -15,11 +15,23 @@ from meshcore_dashboard.middleware.auth import BasicAuthMiddleware
 from meshcore_dashboard.middleware.readonly import ReadOnlyMiddleware
 from meshcore_dashboard.routers import (
     commands as commands_router,
+)
+from meshcore_dashboard.routers import (
     config as config_router,
+)
+from meshcore_dashboard.routers import (
     logs as logs_router,
+)
+from meshcore_dashboard.routers import (
     neighbors as neighbors_router,
+)
+from meshcore_dashboard.routers import (
     stats as stats_router,
+)
+from meshcore_dashboard.routers import (
     status as status_router,
+)
+from meshcore_dashboard.routers import (
     websocket as ws_router,
 )
 from meshcore_dashboard.serial.connection import RepeaterConnection
@@ -36,9 +48,7 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
     # Database
     db_url = f"sqlite+aiosqlite:///{settings.db_path}"
-    engine, session_factory = await create_engine_and_tables(
-        db_url
-    )
+    engine, session_factory = await create_engine_and_tables(db_url)
 
     # Serial connection
     connection = RepeaterConnection(
@@ -48,27 +58,23 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         await connection.connect()
         logger.info("Connected to repeater at %s", settings.serial_port)
     except ConnectionError as e:
-        logger.warning(
-            "Could not connect to repeater: %s", e
-        )
+        logger.warning("Could not connect to repeater: %s", e)
 
     # Wire dependencies
     status_router.set_dependencies(connection, session_factory)
-    stats_router.set_dependencies(session_factory)
     config_router.set_dependencies(connection, session_factory)
-    neighbors_router.set_dependencies(
-        connection, session_factory
-    )
+    neighbors_router.set_dependencies(connection, session_factory)
     logs_router.set_dependencies(connection, session_factory)
     commands_router.set_dependencies(connection)
 
     # Start background services
     poller = Poller(connection, session_factory)
+    stats_router.set_dependencies(session_factory, poller=poller)
+    if connection.state.value == "connected":
+        await poller.sync_device_state(detect_drift=False)
     poller.start()
 
-    retention = RetentionService(
-        session_factory, settings.db_path
-    )
+    retention = RetentionService(session_factory, settings.db_path)
     retention.start()
 
     yield

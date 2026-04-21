@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+if TYPE_CHECKING:
+    from meshcore_dashboard.services.poller import Poller
 
 from meshcore_dashboard.models import (
     StatsDaily,
@@ -21,6 +25,7 @@ from meshcore_dashboard.schemas import (
 router = APIRouter()
 
 _session_factory_ref: async_sessionmaker[AsyncSession] | None = None
+_poller_ref: Poller | None = None
 
 RESOLUTION_MAP = {
     "raw": StatsSnapshot,
@@ -50,9 +55,11 @@ VALID_METRICS = {
 
 def set_dependencies(
     session_factory: async_sessionmaker[AsyncSession],
+    poller: Poller | None = None,
 ) -> None:
-    global _session_factory_ref
+    global _session_factory_ref, _poller_ref
     _session_factory_ref = session_factory
+    _poller_ref = poller
 
 
 @router.get("/api/stats/current")
@@ -61,13 +68,12 @@ async def stats_current() -> StatsResponse | None:
     assert _session_factory_ref
     async with _session_factory_ref() as session:
         result = await session.execute(
-            select(StatsSnapshot)
-            .order_by(StatsSnapshot.timestamp.desc())
-            .limit(1)
+            select(StatsSnapshot).order_by(StatsSnapshot.timestamp.desc()).limit(1)
         )
         row = result.scalar_one_or_none()
         if not row:
             return None
+        stale = _poller_ref.is_stale if _poller_ref else False
         return StatsResponse(
             timestamp=row.timestamp,
             battery_mv=row.battery_mv,
@@ -86,14 +92,13 @@ async def stats_current() -> StatsResponse | None:
             direct_rx=row.direct_rx,
             direct_tx=row.direct_tx,
             recv_errors=row.recv_errors,
+            stale=stale,
         )
 
 
 @router.get("/api/stats/history")
 async def stats_history(
-    metrics: str = Query(
-        default="battery_mv,noise_floor,last_rssi,last_snr"
-    ),
+    metrics: str = Query(default=",".join(VALID_METRICS)),
     start: datetime | None = None,
     end: datetime | None = None,
     resolution: str = Query(default="raw"),
@@ -102,11 +107,7 @@ async def stats_history(
     assert _session_factory_ref
 
     model = RESOLUTION_MAP.get(resolution, StatsSnapshot)
-    requested = {
-        m.strip()
-        for m in metrics.split(",")
-        if m.strip() in VALID_METRICS
-    }
+    requested = {m.strip() for m in metrics.split(",") if m.strip() in VALID_METRICS}
 
     async with _session_factory_ref() as session:
         query = select(model).order_by(model.timestamp.asc())

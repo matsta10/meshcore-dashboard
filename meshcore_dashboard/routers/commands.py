@@ -60,9 +60,7 @@ async def execute_command(body: CommandRequest) -> CommandResponse:
 
     # Execute
     timeout = get_timeout(cmd)
-    output = await _connection_ref.send_command(
-        cmd, timeout=timeout
-    )
+    output = await _connection_ref.send_command(cmd, timeout=timeout)
 
     # Track reboot time
     if cmd.lower() == "reboot":

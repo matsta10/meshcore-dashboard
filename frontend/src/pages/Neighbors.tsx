@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { startTransition, useEffect, useState } from "react"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -13,59 +13,60 @@ import { api } from "@/lib/api"
 import type { NeighborResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
 
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  if (Number.isNaN(then)) return "—"
+  const diffSecs = Math.floor((now - then) / 1000)
+  if (diffSecs < 60) return `${diffSecs}s ago`
+  const diffMins = Math.floor(diffSecs / 60)
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  return `${diffDays}d ago`
+}
+
 export default function Neighbors() {
   const [neighbors, setNeighbors] = useState<NeighborResponse[]>([])
-  const [discovering, setDiscovering] = useState(false)
   const { lastMessage } = useWebSocket()
 
-  const fetchData = useCallback(async () => {
-    setNeighbors(await api.getNeighbors())
+  useEffect(() => {
+    let cancelled = false
+    void api.getNeighbors().then((nextNeighbors) => {
+      if (cancelled) return
+      startTransition(() => {
+        setNeighbors(nextNeighbors)
+      })
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  useEffect(() => {
     if (lastMessage?.type === "neighbor_update") {
-      fetchData()
+      void api.getNeighbors().then((nextNeighbors) => {
+        startTransition(() => {
+          setNeighbors(nextNeighbors)
+        })
+      })
     }
-  }, [lastMessage, fetchData])
-
-  const handleDiscover = async () => {
-    setDiscovering(true)
-    try {
-      await api.discoverNeighbors()
-    } finally {
-      setTimeout(() => {
-        setDiscovering(false)
-        fetchData()
-      }, 5000)
-    }
-  }
+  }, [lastMessage])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
         <h1 className="text-2xl font-bold">Neighbors</h1>
-        <Button onClick={handleDiscover} disabled={discovering}>
-          {discovering ? "Discovering..." : "Discover"}
-        </Button>
+        <Badge variant="secondary">{neighbors.length}</Badge>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>
-            {neighbors.length} neighbor{neighbors.length !== 1 && "s"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
                 <TableHead>Public Key</TableHead>
-                <TableHead>RSSI</TableHead>
                 <TableHead>SNR</TableHead>
                 <TableHead>First Seen</TableHead>
                 <TableHead>Last Seen</TableHead>
@@ -74,25 +75,29 @@ export default function Neighbors() {
             <TableBody>
               {neighbors.map((n) => (
                 <TableRow key={n.public_key}>
-                  <TableCell className="font-medium">
-                    {n.name ?? "Unknown"}
+                  <TableCell
+                    className="max-w-0 truncate font-mono text-xs"
+                    title={n.public_key}
+                  >
+                    {n.public_key}
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {n.public_key.slice(0, 12)}...
+                    {n.last_snr?.toFixed(1) ?? "—"} dB
                   </TableCell>
-                  <TableCell>{n.last_rssi ?? "—"} dBm</TableCell>
-                  <TableCell>{n.last_snr?.toFixed(1) ?? "—"} dB</TableCell>
-                  <TableCell className="text-xs">
-                    {new Date(n.first_seen).toLocaleDateString()}
+                  <TableCell className="text-xs text-muted-foreground">
+                    {relativeTime(n.first_seen)}
                   </TableCell>
-                  <TableCell className="text-xs">
-                    {new Date(n.last_seen).toLocaleString()}
+                  <TableCell className="text-xs text-muted-foreground">
+                    {relativeTime(n.last_seen)}
                   </TableCell>
                 </TableRow>
               ))}
               {neighbors.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={4}
+                    className="text-center text-muted-foreground"
+                  >
                     No neighbors discovered yet
                   </TableCell>
                 </TableRow>

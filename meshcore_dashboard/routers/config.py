@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
@@ -48,9 +48,7 @@ async def get_all_config() -> list[ConfigEntry]:
         rows = result.scalars().all()
         entries = []
         for row in rows:
-            value = (
-                "***" if row.key in PASSWORD_KEYS else row.value
-            )
+            value = "***" if row.key in PASSWORD_KEYS else row.value
             entries.append(
                 ConfigEntry(
                     key=row.key,
@@ -67,9 +65,7 @@ async def get_changelog() -> list[ConfigChangelogEntry]:
     assert _session_factory_ref
     async with _session_factory_ref() as session:
         result = await session.execute(
-            select(ConfigChangelog).order_by(
-                ConfigChangelog.timestamp.desc()
-            )
+            select(ConfigChangelog).order_by(ConfigChangelog.timestamp.desc())
         )
         rows = result.scalars().all()
         return [
@@ -91,36 +87,27 @@ async def get_config_key(key: str) -> ConfigEntry:
     assert _session_factory_ref
     async with _session_factory_ref() as session:
         result = await session.execute(
-            select(ConfigCurrent).where(
-                ConfigCurrent.key == key
-            )
+            select(ConfigCurrent).where(ConfigCurrent.key == key)
         )
         row = result.scalar_one_or_none()
         if not row:
-            raise HTTPException(
-                status_code=404, detail=f"Key '{key}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Key '{key}' not found")
         value = "***" if key in PASSWORD_KEYS else row.value
-        return ConfigEntry(
-            key=row.key, value=value, updated_at=row.updated_at
-        )
+        return ConfigEntry(key=row.key, value=value, updated_at=row.updated_at)
 
 
 @router.put("/api/config/{key}")
-async def set_config_key(
-    key: str, body: ConfigSetRequest
-) -> ConfigChangelogEntry:
+async def set_config_key(key: str, body: ConfigSetRequest) -> ConfigChangelogEntry:
     """Set a config value. Critical params require confirm_value."""
     assert _connection_ref
     assert _session_factory_ref
 
     # Critical param safety check
-    if key in CRITICAL_PARAMS:
-        if body.confirm_value != body.value:
-            raise HTTPException(
-                status_code=400,
-                detail="Critical parameter requires confirm_value matching value",
-            )
+    if key in CRITICAL_PARAMS and body.confirm_value != body.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Critical parameter requires confirm_value matching value",
+        )
 
     # Read current value from device (pre-change snapshot)
     try:
@@ -131,26 +118,20 @@ async def set_config_key(
     # Write new value to device
     await _connection_ref.set_config_value(key, body.value)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Update config_current and write changelog
     async with _session_factory_ref() as session:
         # Upsert config_current
         existing = await session.execute(
-            select(ConfigCurrent).where(
-                ConfigCurrent.key == key
-            )
+            select(ConfigCurrent).where(ConfigCurrent.key == key)
         )
         row = existing.scalar_one_or_none()
         if row:
             row.value = body.value
             row.updated_at = now
         else:
-            session.add(
-                ConfigCurrent(
-                    key=key, value=body.value, updated_at=now
-                )
-            )
+            session.add(ConfigCurrent(key=key, value=body.value, updated_at=now))
 
         # Write changelog
         changelog = ConfigChangelog(
@@ -196,17 +177,13 @@ async def revert_config_key(key: str) -> ConfigChangelogEntry:
             )
 
         # Write the old value back to device
-        await _connection_ref.set_config_value(
-            key, entry.old_value
-        )
+        await _connection_ref.set_config_value(key, entry.old_value)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Update config_current
         cfg_result = await session.execute(
-            select(ConfigCurrent).where(
-                ConfigCurrent.key == key
-            )
+            select(ConfigCurrent).where(ConfigCurrent.key == key)
         )
         cfg = cfg_result.scalar_one_or_none()
         if cfg:

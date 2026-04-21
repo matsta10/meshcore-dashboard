@@ -16,7 +16,7 @@ function App() {
     <BrowserRouter>
       <div className="flex h-screen">
         {/* Sidebar */}
-        <aside className="w-56 border-r bg-sidebar p-4 flex flex-col gap-1">
+        <aside className="w-44 border-r bg-sidebar p-4 flex flex-col gap-1">
           <h2 className="text-lg font-bold mb-4 px-2">MeshCore</h2>
           {navItems.map((item) => (
             <NavLink

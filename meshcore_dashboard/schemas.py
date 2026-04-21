@@ -90,8 +90,22 @@ class CommandResponse(BaseModel):
 
 class PacketLogEntry(BaseModel):
     id: int
-    timestamp: datetime
+    collected_at: datetime
     raw_line: str
+    fingerprint: str | None = None
+    parse_status: str = "raw_only"
+    direction: str | None = None
+    packet_type: int | None = None
+    route: str | None = None
+    payload_len: int | None = None
+    total_len: int | None = None
+    snr: float | None = None
+    rssi: int | None = None
+    score: int | None = None
+    src_addr: str | None = None
+    dst_addr: str | None = None
+    device_time_text: str | None = None
+    device_date_text: str | None = None
 
 
 class HealthResponse(BaseModel):

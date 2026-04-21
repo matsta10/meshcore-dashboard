@@ -1,7 +1,56 @@
 data/
 __pycache__/
+*.py[codz]
+*$py.class
 *.pyc
 .venv/
 .env
+.envrc
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 meshcore_dashboard/static/
 node_modules/
+
+# Distribution / packaging
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.hypothesis/
+.pytest_cache/
+coverage.xml
+
+# Type checker / linter caches
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Editors / local tooling
+.idea/
+.vscode/
+.cursorignore
+.cursorindexingignore
+.superpowers/
+
+# macOS junk
+.DS_Store
+
+# Local planning / audit docs
+docs/audits/
+docs/superpowers/plans/

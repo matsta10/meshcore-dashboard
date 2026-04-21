@@ -52,9 +52,7 @@ async def get_neighbors() -> list[NeighborResponse]:
 async def discover_neighbors() -> JSONResponse:
     """Trigger neighbor discovery on device."""
     assert _connection_ref
-    await _connection_ref.send_command(
-        "discover.neighbors", timeout=3.0
-    )
+    await _connection_ref.send_command("discover.neighbors", timeout=3.0)
     return JSONResponse(
         status_code=202,
         content={"detail": "Discovery initiated"},
