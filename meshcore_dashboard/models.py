@@ -138,8 +138,32 @@ class PacketLog(Base):
     __tablename__ = "packet_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     raw_line: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    parse_status: Mapped[str] = mapped_column(Text, default="raw_only")
+    direction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    packet_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    route: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    snr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rssi: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_time_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    device_date_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class LogCollectionState(Base):
+    __tablename__ = "log_collection_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_buffer_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_buffer_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unchanged_buffer_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_new_entry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_anomaly_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_anomaly_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DeviceInfo(Base):
