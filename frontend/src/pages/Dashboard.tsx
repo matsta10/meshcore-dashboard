@@ -1,6 +1,12 @@
 import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+} from "@/components/ui/table"
 import { api } from "@/lib/api"
 import type { StatsResponse, StatusResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
@@ -45,7 +51,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [history, setHistory] = useState<StatsResponse[]>([])
   const [stale, setStale] = useState(false)
-  const { lastMessage, connected } = useWebSocket()
+  const { lastMessage, connected, send } = useWebSocket()
 
   useEffect(() => {
     let cancelled = false
@@ -107,11 +113,23 @@ export default function Dashboard() {
     }
   }, [lastMessage])
 
+  // Auto-renew live mode while dashboard is visible
+  useEffect(() => {
+    const renew = () => send({ type: "set_live_mode", data: { enabled: true } })
+    renew()
+    const id = setInterval(renew, 20_000)
+    return () => {
+      clearInterval(id)
+      send({ type: "set_live_mode", data: { enabled: false } })
+    }
+  }, [send])
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Header bar */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-bold font-mono">
             {status?.device_info?.name ?? "MeshCore Dashboard"}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -130,127 +148,148 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Stats grid — two columns */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Left: System */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Battery
-            </CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-muted-foreground">System</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stats?.battery_mv ?? "—"} mV</p>
+          <CardContent className="px-4 pb-3">
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Battery</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.battery_mv != null ? `${stats.battery_mv} mV` : "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Uptime</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {formatUptime(stats?.uptime_secs ?? null)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Queue</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.queue_len ?? "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Errors</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.errors ?? "—"}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
+
+        {/* Right: Radio */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Uptime
-            </CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-muted-foreground">Radio</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {formatUptime(stats?.uptime_secs ?? null)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">RSSI</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {stats?.last_rssi ?? "—"} dBm
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">SNR</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {stats?.last_snr?.toFixed(1) ?? "—"} dB
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Noise Floor
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {stats?.noise_floor ?? "—"} dBm
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Queue
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stats?.queue_len ?? "—"}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Packets RX
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stats?.packets_recv ?? "—"}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Packets TX
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{stats?.packets_sent ?? "—"}</p>
+          <CardContent className="px-4 pb-3">
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">RSSI</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right text-blue-400">
+                    {stats?.last_rssi != null ? `${stats.last_rssi} dBm` : "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">SNR</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right text-blue-400">
+                    {stats?.last_snr != null ? `${stats.last_snr.toFixed(1)} dB` : "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Noise Floor</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right text-red-400">
+                    {stats?.noise_floor != null ? `${stats.noise_floor} dBm` : "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">TX Air</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.tx_air_secs != null ? `${stats.tx_air_secs}s` : "—"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">RX Air</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.rx_air_secs != null ? `${stats.rx_air_secs}s` : "—"}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>
 
-      {/* Sparkline Chart */}
+      {/* Packets row */}
+      <Card>
+        <CardContent className="px-4 py-3">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-xs text-muted-foreground">Flood RX</span>
+              <span className="font-mono text-sm">{stats?.flood_rx ?? "—"}</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-xs text-muted-foreground">Flood TX</span>
+              <span className="font-mono text-sm">{stats?.flood_tx ?? "—"}</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-xs text-muted-foreground">Direct RX</span>
+              <span className="font-mono text-sm">{stats?.direct_rx ?? "—"}</span>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-xs text-muted-foreground">Direct TX</span>
+              <span className="font-mono text-sm">{stats?.direct_tx ?? "—"}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Signal chart */}
       {history.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Signal (24h)</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-muted-foreground">Signal (24h)</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
+          <CardContent className="px-4 pb-3">
+            <ResponsiveContainer width="100%" height={160}>
               <LineChart data={history}>
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) =>
-                    new Date(v).toLocaleTimeString([], {
+                    new Date(v as string).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })
                   }
+                  tick={{ fontSize: 10 }}
                 />
-                <YAxis />
+                <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip />
                 <Line
                   type="monotone"
                   dataKey="last_rssi"
-                  stroke="#3b82f6"
+                  stroke="#60a5fa"
                   dot={false}
                   name="RSSI"
                 />
                 <Line
                   type="monotone"
                   dataKey="noise_floor"
-                  stroke="#ef4444"
+                  stroke="#f87171"
                   dot={false}
-                  name="Noise"
+                  strokeDasharray="4 2"
+                  name="Noise Floor"
                 />
               </LineChart>
             </ResponsiveContainer>
