@@ -1,6 +1,9 @@
 """Tests for poller parse-health tracking."""
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
 
 from meshcore_dashboard.services.poller import Poller
 
@@ -41,3 +44,13 @@ def test_poller_tracks_partial_stats_health():
     assert poller.stats_health["stats-packets"]["last_success_at"] == now
     assert poller.stats_health["stats-core"]["ok"] is False
     assert poller.stats_health["stats-core"]["last_error"] == "Invalid JSON"
+
+
+@pytest.mark.anyio
+async def test_poller_stops_streaming_logs_on_startup():
+    connection = AsyncMock()
+    poller = Poller(connection=connection, session_factory=None)  # type: ignore[arg-type]
+
+    await poller._ensure_log_stopped()
+
+    connection.send_command.assert_awaited_once_with("log stop", timeout=3.0)

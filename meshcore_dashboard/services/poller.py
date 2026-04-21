@@ -74,7 +74,7 @@ class Poller:
         self._session_factory = session_factory
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._poll_count = 0
-        self._log_started = False
+        self._log_mode_initialized = False
         self._log_collector = LogCollector()
         self._last_parse_error: str | None = None
         self._stats_command_health: dict[str, dict[str, object | None]] = {
@@ -267,10 +267,12 @@ class Poller:
 
         self._poll_count += 1
 
-        # Sync clock and start logging on first connection
-        if not self._log_started:
+        # Sync clock and force non-streaming log mode on first connection.
+        # Continuous `log start` output contaminates prefixed stats/config commands
+        # on this shared serial transport, so background polling must keep it off.
+        if not self._log_mode_initialized:
             await self._sync_device_clock()
-            await self._ensure_log_started()
+            await self._ensure_log_stopped()
 
         now = datetime.now(UTC)
         stats_data: dict = {}
@@ -328,7 +330,7 @@ class Poller:
         uptime = stats_data.get("uptime_secs")
         if uptime is not None and self._connection.check_reboot(uptime):
             logger.info("Reboot detected! Re-syncing clock and config.")
-            self._log_started = False  # Re-start logging after reboot
+            self._log_mode_initialized = False
             await self._sync_device_clock()
             await self._log_reboot(uptime)
             await self.sync_device_state(detect_drift=True)
@@ -389,14 +391,14 @@ class Poller:
         except (ConnectionError, TimeoutError) as e:
             logger.warning("Failed to sync device clock: %s", e)
 
-    async def _ensure_log_started(self) -> None:
-        """Send 'log start' to enable packet logging on device."""
+    async def _ensure_log_stopped(self) -> None:
+        """Disable continuous device log streaming for reliable polling."""
         try:
-            await self._connection.send_command("log start", timeout=3.0)
-            self._log_started = True
-            logger.info("Packet logging started on device")
+            await self._connection.send_command("log stop", timeout=3.0)
+            self._log_mode_initialized = True
+            logger.info("Continuous packet log streaming disabled on device")
         except (ConnectionError, TimeoutError) as e:
-            logger.warning("Failed to start logging: %s", e)
+            logger.warning("Failed to stop continuous logging: %s", e)
 
     async def _collect_logs(self) -> None:
         """Fetch log buffer from device and store new entries."""
