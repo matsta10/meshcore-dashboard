@@ -63,7 +63,31 @@ export default function Config() {
   }
 
   useEffect(() => {
-    void refreshData()
+    let cancelled = false
+    void (async () => {
+      try {
+        const [nextConfig, nextChangelog] = await Promise.all([
+          api.getConfig(),
+          api.getConfigChangelog(),
+        ])
+        if (cancelled) return
+        const nextValues: Record<string, string> = {}
+        for (const entry of nextConfig) {
+          nextValues[entry.key] = entry.value
+        }
+        startTransition(() => {
+          setConfig(nextConfig)
+          setChangelog(nextChangelog)
+          setEditValues(nextValues)
+          setError(null)
+        })
+      } catch (e) {
+        if (!cancelled) setError(`Failed to load config: ${e}`)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleSave = async (key: string) => {
