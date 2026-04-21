@@ -65,20 +65,18 @@ async def test_config_sync_keys_expand_and_guest_password_is_masked():
 
     try:
         async with session_factory() as session:
-            session.add_all(
-                [
-                    ConfigCurrent(
-                        key="guest.password",
-                        value="secret",
-                        updated_at=datetime.now(UTC),
-                    ),
-                    ConfigCurrent(
-                        key="owner.info",
-                        value="Operator A",
-                        updated_at=datetime.now(UTC),
-                    ),
-                ]
-            )
+            session.add_all([
+                ConfigCurrent(
+                    key="guest.password",
+                    value="secret",
+                    updated_at=datetime.now(UTC),
+                ),
+                ConfigCurrent(
+                    key="owner.info",
+                    value="Operator A",
+                    updated_at=datetime.now(UTC),
+                ),
+            ])
             await session.commit()
 
         config_router.set_dependencies(

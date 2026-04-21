@@ -29,8 +29,8 @@ PASSWORD_KEYS = {"password", "guest", "guest.password"}
 MASKED_VALUE = "***"
 
 
-def _mask_value(key: str, value: str | None) -> str | None:
-    return MASKED_VALUE if key in PASSWORD_KEYS and value is not None else value
+def _mask_value(key: str, value: str) -> str:
+    return MASKED_VALUE if key in PASSWORD_KEYS else value
 
 
 def _mask_changelog_entry(entry: ConfigChangelog) -> ConfigChangelogEntry:
@@ -38,7 +38,11 @@ def _mask_changelog_entry(entry: ConfigChangelog) -> ConfigChangelogEntry:
         id=entry.id,
         timestamp=entry.timestamp,
         key=entry.key,
-        old_value=_mask_value(entry.key, entry.old_value),
+        old_value=(
+            _mask_value(entry.key, entry.old_value)
+            if entry.old_value is not None
+            else None
+        ),
         new_value=_mask_value(entry.key, entry.new_value),
         source=entry.source,
     )
