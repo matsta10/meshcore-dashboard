@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { startTransition, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -49,26 +49,42 @@ export default function Dashboard() {
   const visible = usePageVisibility()
   const renewalRef = useRef<ReturnType<typeof setInterval>>(null)
 
-  const fetchData = useCallback(async () => {
-    const [s, st] = await Promise.all([api.getStatus(), api.getStatsCurrent()])
-    setStatus(s)
-    setStats(st)
-  }, [])
-
   useEffect(() => {
-    fetchData()
-    api
+    let cancelled = false
+
+    void Promise.all([api.getStatus(), api.getStatsCurrent()]).then(
+      ([nextStatus, nextStats]) => {
+        if (cancelled) return
+        startTransition(() => {
+          setStatus(nextStatus)
+          setStats(nextStats)
+        })
+      }
+    )
+
+    void api
       .getStatsHistory({
         metrics: "battery_mv,noise_floor,last_rssi,last_snr",
         resolution: "hourly",
       })
-      .then((r) => setHistory(r.data))
-  }, [fetchData])
+      .then((r) => {
+        if (cancelled) return
+        startTransition(() => {
+          setHistory(r.data)
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Update stats from WS
   useEffect(() => {
     if (lastMessage?.type === "stats_update") {
-      setStats(lastMessage.data as unknown as StatsResponse)
+      startTransition(() => {
+        setStats(lastMessage.data as StatsResponse)
+      })
     }
   }, [lastMessage])
 

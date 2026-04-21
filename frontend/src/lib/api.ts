@@ -65,9 +65,8 @@ export const api = {
   fetchLogs: () =>
     request<{ detail: string }>("/api/logs/fetch", { method: "POST" }),
   eraseLogs: () =>
-    request<{ detail: string }>("/api/logs/erase", {
+    request<{ detail: string }>("/api/logs/erase?confirm=true", {
       method: "POST",
-      body: JSON.stringify({ confirm: true }),
     }),
   executeCommand: (command: string, confirm = false) =>
     request<{ output: string }>("/api/command", {

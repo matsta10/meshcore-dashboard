@@ -5,6 +5,7 @@ import pytest
 from meshcore_dashboard.serial.parser import (
     ParseError,
     parse_config_value,
+    parse_log_lines,
     parse_response_lines,
     parse_stats_json,
 )
@@ -60,3 +61,17 @@ def test_parse_config_value_with_spaces():
 def test_parse_config_value_missing():
     with pytest.raises(ParseError):
         parse_config_value("  -> no angle bracket\r\n")
+
+
+def test_parse_log_lines():
+    raw = (
+        "log\r\n"
+        "12:34:56 - 21/4/2026 U: packet one\r\n"
+        "  -> ignored status\r\n"
+        "12:34:57 - 21/4/2026 D: packet two\r\n"
+        "EOF\r\n"
+    )
+    assert parse_log_lines(raw) == [
+        "12:34:56 - 21/4/2026 U: packet one",
+        "12:34:57 - 21/4/2026 D: packet two",
+    ]

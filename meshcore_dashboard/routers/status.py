@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Response
 from sqlalchemy import select
@@ -36,14 +36,14 @@ def set_dependencies(
 def update_last_poll() -> None:
     """Called by poller after successful poll."""
     global _last_poll_time
-    _last_poll_time = datetime.now(timezone.utc)
+    _last_poll_time = datetime.now(UTC)
 
 
 @router.get("/api/health")
 async def health(response: Response) -> HealthResponse:
     """Returns 200 if last poll <5min ago, 503 otherwise."""
     if _last_poll_time is None or (
-        datetime.now(timezone.utc) - _last_poll_time
+        datetime.now(UTC) - _last_poll_time
         > timedelta(minutes=5)
     ):
         response.status_code = 503

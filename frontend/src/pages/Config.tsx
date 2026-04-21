@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,23 +23,25 @@ export default function Config() {
   const [confirmValues, setConfirmValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
-    const [c, cl] = await Promise.all([
+  const refreshData = async () => {
+    const [nextConfig, nextChangelog] = await Promise.all([
       api.getConfig(),
       api.getConfigChangelog(),
     ])
-    setConfig(c)
-    setChangelog(cl)
-    const vals: Record<string, string> = {}
-    for (const entry of c) {
-      vals[entry.key] = entry.value
+    const nextValues: Record<string, string> = {}
+    for (const entry of nextConfig) {
+      nextValues[entry.key] = entry.value
     }
-    setEditValues(vals)
-  }, [])
+    startTransition(() => {
+      setConfig(nextConfig)
+      setChangelog(nextChangelog)
+      setEditValues(nextValues)
+    })
+  }
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    void refreshData()
+  }, [])
 
   const handleSave = async (key: string) => {
     setSaving(key)
@@ -49,7 +51,7 @@ export default function Config() {
         ? confirmValues[key]
         : undefined
       await api.setConfig(key, value, confirm_value)
-      await fetchData()
+      await refreshData()
     } catch (e) {
       alert(`Error: ${e}`)
     } finally {
@@ -60,7 +62,7 @@ export default function Config() {
   const handleRevert = async (key: string) => {
     try {
       await api.revertConfig(key)
-      await fetchData()
+      await refreshData()
     } catch (e) {
       alert(`Error: ${e}`)
     }

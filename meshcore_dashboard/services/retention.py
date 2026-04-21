@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from datetime import datetime, timedelta, timezone
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -65,15 +66,13 @@ class RetentionService:
         """Stop the retention scheduler."""
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def _schedule_loop(self) -> None:
         """Run retention daily at 03:00 UTC."""
         while True:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             # Calculate next 03:00 UTC
             next_run = now.replace(
                 hour=3, minute=0, second=0, microsecond=0
@@ -93,7 +92,7 @@ class RetentionService:
         """Execute the full retention cycle."""
         logger.info("Starting retention job")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         seven_days_ago = now - timedelta(days=7)
         ninety_days_ago = now - timedelta(days=90)
 
@@ -144,7 +143,7 @@ class RetentionService:
             for hour_str in hours:
                 hour_start = datetime.strptime(
                     hour_str, "%Y-%m-%d %H:%M:%S"
-                ).replace(tzinfo=timezone.utc)
+                ).replace(tzinfo=UTC)
                 hour_end = hour_start + timedelta(hours=1)
 
                 # Get all snapshots in this hour
@@ -206,7 +205,7 @@ class RetentionService:
             for day_str in days:
                 day_start = datetime.strptime(
                     day_str, "%Y-%m-%d"
-                ).replace(tzinfo=timezone.utc)
+                ).replace(tzinfo=UTC)
                 day_end = day_start + timedelta(days=1)
 
                 hourly_result = await session.execute(
@@ -246,7 +245,7 @@ class RetentionService:
     def _run_backup(self) -> None:
         """Run sqlite3 .backup command."""
         try:
-            date_str = datetime.now(timezone.utc).strftime(
+            date_str = datetime.now(UTC).strftime(
                 "%Y%m%d"
             )
             backup_file = (

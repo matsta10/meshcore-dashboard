@@ -44,3 +44,20 @@ def parse_config_value(raw: str) -> str:
         if line.startswith(CONFIG_PREFIX):
             return line[len(CONFIG_PREFIX) :]
     raise ParseError("No config value line found", raw)
+
+
+def parse_log_lines(raw: str) -> list[str]:
+    """Extract packet log lines from a log dump response."""
+    lines: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if (
+            not stripped
+            or stripped == "log"
+            or "EOF" in stripped
+            or stripped.startswith(RESPONSE_PREFIX)
+        ):
+            continue
+        if " U: " in stripped or " D: " in stripped:
+            lines.append(stripped)
+    return lines

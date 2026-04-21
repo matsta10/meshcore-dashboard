@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meshcore_dashboard.models import PacketLog
 from meshcore_dashboard.schemas import PacketLogEntry
 from meshcore_dashboard.serial.connection import RepeaterConnection
-from meshcore_dashboard.serial.parser import parse_response_lines
+from meshcore_dashboard.serial.parser import parse_log_lines
 
 router = APIRouter()
 
@@ -76,8 +76,8 @@ async def fetch_logs() -> dict:
     assert _session_factory_ref
 
     raw = await _connection_ref.send_command("log", timeout=10.0)
-    lines = parse_response_lines(raw)
-    now = datetime.now(timezone.utc)
+    lines = parse_log_lines(raw)
+    now = datetime.now(UTC)
 
     async with _session_factory_ref() as session:
         for line in lines:

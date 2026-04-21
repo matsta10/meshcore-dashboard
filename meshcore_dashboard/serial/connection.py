@@ -9,7 +9,6 @@ from enum import Enum
 import serial
 
 from meshcore_dashboard.serial.parser import (
-    ParseError,
     parse_config_value,
     parse_stats_json,
 )

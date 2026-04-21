@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,19 +18,28 @@ export default function Neighbors() {
   const [discovering, setDiscovering] = useState(false)
   const { lastMessage } = useWebSocket()
 
-  const fetchData = useCallback(async () => {
-    setNeighbors(await api.getNeighbors())
+  useEffect(() => {
+    let cancelled = false
+    void api.getNeighbors().then((nextNeighbors) => {
+      if (cancelled) return
+      startTransition(() => {
+        setNeighbors(nextNeighbors)
+      })
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  useEffect(() => {
     if (lastMessage?.type === "neighbor_update") {
-      fetchData()
+      void api.getNeighbors().then((nextNeighbors) => {
+        startTransition(() => {
+          setNeighbors(nextNeighbors)
+        })
+      })
     }
-  }, [lastMessage, fetchData])
+  }, [lastMessage])
 
   const handleDiscover = async () => {
     setDiscovering(true)
@@ -39,7 +48,11 @@ export default function Neighbors() {
     } finally {
       setTimeout(() => {
         setDiscovering(false)
-        fetchData()
+        void api.getNeighbors().then((nextNeighbors) => {
+          startTransition(() => {
+            setNeighbors(nextNeighbors)
+          })
+        })
       }, 5000)
     }
   }

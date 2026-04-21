@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
@@ -115,12 +115,14 @@ async def set_config_key(
     assert _session_factory_ref
 
     # Critical param safety check
-    if key in CRITICAL_PARAMS:
-        if body.confirm_value != body.value:
-            raise HTTPException(
-                status_code=400,
-                detail="Critical parameter requires confirm_value matching value",
-            )
+    if (
+        key in CRITICAL_PARAMS
+        and body.confirm_value != body.value
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Critical parameter requires confirm_value matching value",
+        )
 
     # Read current value from device (pre-change snapshot)
     try:
@@ -131,7 +133,7 @@ async def set_config_key(
     # Write new value to device
     await _connection_ref.set_config_value(key, body.value)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Update config_current and write changelog
     async with _session_factory_ref() as session:
@@ -200,7 +202,7 @@ async def revert_config_key(key: str) -> ConfigChangelogEntry:
             key, entry.old_value
         )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Update config_current
         cfg_result = await session.execute(

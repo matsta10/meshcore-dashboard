@@ -15,11 +15,23 @@ from meshcore_dashboard.middleware.auth import BasicAuthMiddleware
 from meshcore_dashboard.middleware.readonly import ReadOnlyMiddleware
 from meshcore_dashboard.routers import (
     commands as commands_router,
+)
+from meshcore_dashboard.routers import (
     config as config_router,
+)
+from meshcore_dashboard.routers import (
     logs as logs_router,
+)
+from meshcore_dashboard.routers import (
     neighbors as neighbors_router,
+)
+from meshcore_dashboard.routers import (
     stats as stats_router,
+)
+from meshcore_dashboard.routers import (
     status as status_router,
+)
+from meshcore_dashboard.routers import (
     websocket as ws_router,
 )
 from meshcore_dashboard.serial.connection import RepeaterConnection
@@ -64,6 +76,8 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
 
     # Start background services
     poller = Poller(connection, session_factory)
+    if connection.state.value == "connected":
+        await poller.sync_device_state(detect_drift=False)
     poller.start()
 
     retention = RetentionService(

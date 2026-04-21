@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from contextlib import suppress
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meshcore_dashboard.models import (
     ConfigChangelog,
     ConfigCurrent,
+    DeviceInfo,
     Neighbor,
     PacketLog,
     StatsSnapshot,
@@ -19,7 +21,11 @@ from meshcore_dashboard.models import (
 from meshcore_dashboard.routers import websocket as ws_router
 from meshcore_dashboard.routers.status import update_last_poll
 from meshcore_dashboard.serial.connection import RepeaterConnection
-from meshcore_dashboard.serial.parser import ParseError, parse_response_lines
+from meshcore_dashboard.serial.parser import (
+    ParseError,
+    parse_log_lines,
+    parse_response_lines,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,16 @@ FIELD_REMAP = {
 
 # How often to poll neighbors (every N poll cycles)
 NEIGHBOR_POLL_INTERVAL = 10
+
+CONFIG_SYNC_KEYS = (
+    "name",
+    "freq",
+    "bw",
+    "sf",
+    "cr",
+    "tx_power",
+    "pub.key",
+)
 
 
 class Poller:
@@ -52,6 +68,121 @@ class Poller:
         """Start the polling loop."""
         self._task = asyncio.create_task(self._poll_loop())
 
+    async def sync_device_state(
+        self, *, detect_drift: bool
+    ) -> None:
+        """Refresh a bounded set of config and device info from the repeater."""
+        config_values: dict[str, str] = {}
+        for key in CONFIG_SYNC_KEYS:
+            try:
+                config_values[key] = (
+                    await self._connection.get_config_value(key)
+                )
+            except (ConnectionError, TimeoutError, ParseError):
+                logger.debug("Config sync skipped for key %s", key)
+
+        firmware_ver = await self._read_single_line_command("ver")
+        board = await self._read_single_line_command("board")
+        now = datetime.now(UTC)
+
+        async with self._session_factory() as session:
+            existing_result = await session.execute(
+                select(ConfigCurrent).where(
+                    ConfigCurrent.key.in_(CONFIG_SYNC_KEYS)
+                )
+            )
+            existing_rows = {
+                row.key: row
+                for row in existing_result.scalars().all()
+            }
+
+            for key, new_value in config_values.items():
+                existing = existing_rows.get(key)
+                if existing:
+                    if (
+                        detect_drift
+                        and existing.value != new_value
+                    ):
+                        session.add(
+                            ConfigChangelog(
+                                timestamp=now,
+                                key=key,
+                                old_value=existing.value,
+                                new_value=new_value,
+                                source="detected",
+                            )
+                        )
+                    existing.value = new_value
+                    existing.updated_at = now
+                else:
+                    session.add(
+                        ConfigCurrent(
+                            key=key,
+                            value=new_value,
+                            updated_at=now,
+                        )
+                    )
+
+            device_info = await session.get(DeviceInfo, 1)
+            if device_info is None:
+                device_info = DeviceInfo(id=1)
+                session.add(device_info)
+
+            device_info.name = config_values.get("name")
+            device_info.public_key = config_values.get("pub.key")
+            device_info.radio_freq = self._parse_optional_float(
+                config_values.get("freq")
+            )
+            device_info.radio_bw = self._parse_optional_float(
+                config_values.get("bw")
+            )
+            device_info.radio_sf = self._parse_optional_int(
+                config_values.get("sf")
+            )
+            device_info.radio_cr = self._parse_optional_int(
+                config_values.get("cr")
+            )
+            device_info.tx_power = self._parse_optional_int(
+                config_values.get("tx_power")
+            )
+            device_info.firmware_ver = firmware_ver
+            device_info.board = board
+            device_info.updated_at = now
+
+            await session.commit()
+
+    async def _read_single_line_command(
+        self, cmd: str
+    ) -> str | None:
+        """Read the first response line from a simple serial command."""
+        try:
+            raw = await self._connection.send_command(
+                cmd, timeout=1.0
+            )
+        except (ConnectionError, TimeoutError):
+            return None
+
+        lines = parse_response_lines(raw)
+        if not lines:
+            return None
+        return lines[0].strip() or None
+
+    @staticmethod
+    def _parse_optional_int(value: str | None) -> int | None:
+        if value is None:
+            return None
+        with suppress(ValueError):
+            return int(value)
+        return None
+
+    @staticmethod
+    def _parse_optional_float(value: str | None) -> float | None:
+        if value is None:
+            return None
+        with suppress(ValueError):
+            return float(value)
+        return None
+
     async def _seed_seen_logs(self) -> None:
         """Load recent log lines from DB to avoid re-storing them."""
         async with self._session_factory() as session:
@@ -67,10 +198,8 @@ class Poller:
         """Stop the polling loop."""
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def _poll_loop(self) -> None:
         """Main polling loop with adaptive interval."""
@@ -100,7 +229,7 @@ class Poller:
         if not self._log_started:
             await self._ensure_log_started()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stats_data: dict = {}
 
         # Collect stats from all three commands
@@ -135,7 +264,7 @@ class Poller:
             logger.info("Reboot detected! Re-reading config.")
             self._log_started = False  # Re-start logging after reboot
             await self._log_reboot(uptime)
-            await self._read_full_config()
+            await self.sync_device_state(detect_drift=True)
 
         # Write stats to DB
         snapshot = StatsSnapshot(
@@ -180,7 +309,7 @@ class Poller:
         """Log reboot event to config_changelog."""
         async with self._session_factory() as session:
             entry = ConfigChangelog(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 key="_meta.reboot",
                 old_value=str(
                     self._connection._last_uptime or "unknown"
@@ -190,18 +319,6 @@ class Poller:
             )
             session.add(entry)
             await session.commit()
-
-    async def _read_full_config(self) -> None:
-        """Read all config from device and detect drift."""
-        # For now, broadcast connection status change
-        await ws_router.broadcast(
-            {
-                "type": "connection_status",
-                "data": {
-                    "state": self._connection.state.value
-                },
-            }
-        )
 
     async def _ensure_log_started(self) -> None:
         """Send 'log start' to enable packet logging on device."""
@@ -223,27 +340,15 @@ class Poller:
         except (ConnectionError, TimeoutError):
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entries: list[PacketLog] = []
 
-        for line in raw.splitlines():
-            stripped = line.strip()
-            # Skip empty, command echo, EOF, and response prefixes
-            if (
-                not stripped
-                or stripped == "log"
-                or "EOF" in stripped
-                or stripped.startswith("  ->")
-            ):
-                continue
-            # Log lines contain timestamps like "HH:MM:SS - DD/M/YYYY"
-            # and packet info with "U: " (user) or "D: " (device)
-            if " U: " in stripped or " D: " in stripped:
-                if stripped not in self._seen_log_lines:
-                    self._seen_log_lines.add(stripped)
-                    entries.append(
-                        PacketLog(timestamp=now, raw_line=stripped)
-                    )
+        for line in parse_log_lines(raw):
+            if line not in self._seen_log_lines:
+                self._seen_log_lines.add(line)
+                entries.append(
+                    PacketLog(timestamp=now, raw_line=line)
+                )
 
         if entries:
             async with self._session_factory() as session:
@@ -266,7 +371,7 @@ class Poller:
         except (ConnectionError, TimeoutError):
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lines = parse_response_lines(raw)
 
         for line in lines:
@@ -283,15 +388,11 @@ class Poller:
             rssi = None
             snr = None
             if len(parts) >= 2:
-                try:
+                with suppress(ValueError):
                     rssi = int(parts[1])
-                except ValueError:
-                    pass
             if len(parts) >= 3:
-                try:
+                with suppress(ValueError):
                     snr = float(parts[2])
-                except ValueError:
-                    pass
 
             async with self._session_factory() as session:
                 result = await session.execute(
@@ -318,5 +419,5 @@ class Poller:
 
         # Broadcast neighbor update
         await ws_router.broadcast(
-            {"type": "neighbors_update", "data": {}}
+            {"type": "neighbor_update", "data": {}}
         )

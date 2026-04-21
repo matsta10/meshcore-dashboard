@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -19,13 +19,18 @@ export default function Logs() {
   const [logging, setLogging] = useState(false)
   const [eraseConfirm, setEraseConfirm] = useState("")
 
-  const fetchData = useCallback(async () => {
-    setLogs(await api.getLogs())
-  }, [])
-
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    let cancelled = false
+    void api.getLogs().then((nextLogs) => {
+      if (cancelled) return
+      startTransition(() => {
+        setLogs(nextLogs)
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleToggleLogging = async (enabled: boolean) => {
     if (enabled) {
@@ -38,14 +43,20 @@ export default function Logs() {
 
   const handleFetch = async () => {
     await api.fetchLogs()
-    await fetchData()
+    const nextLogs = await api.getLogs()
+    startTransition(() => {
+      setLogs(nextLogs)
+    })
   }
 
   const handleErase = async () => {
     if (eraseConfirm !== "erase") return
     await api.eraseLogs()
     setEraseConfirm("")
-    await fetchData()
+    const nextLogs = await api.getLogs()
+    startTransition(() => {
+      setLogs(nextLogs)
+    })
   }
 
   return (

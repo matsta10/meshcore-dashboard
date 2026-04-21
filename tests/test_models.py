@@ -1,6 +1,6 @@
 """Tests for database models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -25,7 +25,7 @@ async def db_session():
 @pytest.mark.anyio
 async def test_create_stats_snapshot(db_session):
     snap = StatsSnapshot(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         battery_mv=4168,
         uptime_secs=120,
         noise_floor=-108,
@@ -44,7 +44,7 @@ async def test_config_current(db_session):
     cfg = ConfigCurrent(
         key="name",
         value="Blue Orchid",
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     db_session.add(cfg)
     await db_session.commit()
