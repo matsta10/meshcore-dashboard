@@ -127,16 +127,19 @@ async def stats_history(
     requested = {m.strip() for m in metrics.split(",") if m.strip() in VALID_METRICS}
 
     async with _session_factory_ref() as session:
-        query = select(model).order_by(model.timestamp.asc())
-        if start:
-            query = query.where(model.timestamp >= start)
-        if end:
-            query = query.where(model.timestamp <= end)
-        # Limit to prevent huge responses
-        query = query.limit(10000)
+        async def load_rows(selected_model: type[StatsSnapshot]) -> list[StatsSnapshot]:
+            query = select(selected_model).order_by(selected_model.timestamp.asc())
+            if start:
+                query = query.where(selected_model.timestamp >= start)
+            if end:
+                query = query.where(selected_model.timestamp <= end)
+            query = query.limit(10000)
+            result = await session.execute(query)
+            return list(result.scalars().all())
 
-        result = await session.execute(query)
-        rows = result.scalars().all()
+        rows = await load_rows(model)
+        if resolution == "hourly" and not rows:
+            rows = await load_rows(StatsSnapshot)
 
         data = []
         for row in rows:

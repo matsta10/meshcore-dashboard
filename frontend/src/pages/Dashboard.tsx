@@ -85,7 +85,7 @@ export default function Dashboard() {
     void api
       .getStatsHistory({
         metrics: "battery_mv,noise_floor,last_rssi,last_snr",
-        resolution: "hourly",
+        resolution: "raw",
       })
       .then((r) => {
         if (cancelled) return
