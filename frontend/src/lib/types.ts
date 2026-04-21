@@ -52,6 +52,20 @@ export interface ConfigChangelogEntry {
   source: string
 }
 
+export interface ConfigCategory {
+  id: string
+  label: string
+  keys: string[]
+}
+
+export interface ClockReadResponse {
+  output: string
+}
+
+export interface AdminActionResponse {
+  detail: string
+}
+
 export interface NeighborResponse {
   public_key: string
   name: string | null

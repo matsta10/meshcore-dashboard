@@ -1,8 +1,10 @@
+import { lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom"
-import Dashboard from "@/pages/Dashboard"
-import Config from "@/pages/Config"
-import Neighbors from "@/pages/Neighbors"
-import Logs from "@/pages/Logs"
+
+const Dashboard = lazy(() => import("@/pages/Dashboard"))
+const Config = lazy(() => import("@/pages/Config"))
+const Neighbors = lazy(() => import("@/pages/Neighbors"))
+const Logs = lazy(() => import("@/pages/Logs"))
 
 const navItems = [
   { to: "/", label: "Dashboard" },
@@ -38,12 +40,20 @@ function App() {
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto p-6">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/config" element={<Config />} />
-            <Route path="/neighbors" element={<Neighbors />} />
-            <Route path="/logs" element={<Logs />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
+                Loading page…
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/config" element={<Config />} />
+              <Route path="/neighbors" element={<Neighbors />} />
+              <Route path="/logs" element={<Logs />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </BrowserRouter>

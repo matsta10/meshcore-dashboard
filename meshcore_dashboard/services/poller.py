@@ -52,6 +52,13 @@ CONFIG_SYNC_KEYS = (
     "cr",
     "tx_power",
     "pub.key",
+    "radio.rxgain",
+    "guest.password",
+    "owner.info",
+    "lat",
+    "lon",
+    "adc.multiplier",
+    "powersaving",
 )
 
 

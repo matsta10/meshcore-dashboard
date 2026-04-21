@@ -6,7 +6,12 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
-from meshcore_dashboard.schemas import CommandRequest, CommandResponse
+from meshcore_dashboard.schemas import (
+    AdminActionResponse,
+    ClockSetRequest,
+    CommandRequest,
+    CommandResponse,
+)
 from meshcore_dashboard.serial.commands import (
     get_timeout,
     is_command_allowed,
@@ -67,3 +72,27 @@ async def execute_command(body: CommandRequest) -> CommandResponse:
         _last_reboot_time = time.time()
 
     return CommandResponse(output=output)
+
+
+@router.post("/api/admin/clock/read")
+async def read_clock() -> CommandResponse:
+    """Read the repeater clock."""
+    assert _connection_ref
+    output = await _connection_ref.send_command("clock", timeout=1.0)
+    return CommandResponse(output=output)
+
+
+@router.post("/api/admin/clock/sync")
+async def sync_clock() -> AdminActionResponse:
+    """Sync the repeater clock to the operator system."""
+    assert _connection_ref
+    await _connection_ref.send_command("clock sync", timeout=3.0)
+    return AdminActionResponse(detail="Clock sync requested")
+
+
+@router.post("/api/admin/clock/set")
+async def set_clock(body: ClockSetRequest) -> AdminActionResponse:
+    """Set the repeater clock to an explicit epoch time."""
+    assert _connection_ref
+    await _connection_ref.send_command(f"time {body.epoch_seconds}", timeout=3.0)
+    return AdminActionResponse(detail="Clock set requested")

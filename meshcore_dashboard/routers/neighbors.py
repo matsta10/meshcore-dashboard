@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Path
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from meshcore_dashboard.models import Neighbor
-from meshcore_dashboard.schemas import NeighborResponse
+from meshcore_dashboard.schemas import AdminActionResponse, NeighborResponse
 from meshcore_dashboard.serial.connection import RepeaterConnection
 
 router = APIRouter()
@@ -57,3 +57,22 @@ async def discover_neighbors() -> JSONResponse:
         status_code=202,
         content={"detail": "Discovery initiated"},
     )
+
+
+@router.delete(
+    "/api/neighbors/{prefix}",
+    response_model=AdminActionResponse,
+    status_code=202,
+)
+async def remove_neighbor(
+    prefix: str = Path(
+        min_length=4,
+        max_length=64,
+        pattern=r"^[0-9A-Fa-f]+$",
+        description="Hex prefix of the neighbor public key",
+    ),
+) -> AdminActionResponse:
+    """Remove a neighbor identified by a public key prefix."""
+    assert _connection_ref
+    await _connection_ref.send_command(f"neighbor.remove {prefix}", timeout=3.0)
+    return AdminActionResponse(detail="Neighbor removal requested")

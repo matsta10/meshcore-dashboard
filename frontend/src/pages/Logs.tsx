@@ -1,6 +1,6 @@
 import { startTransition, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription } from "@/components/ui/card"
 import { api } from "@/lib/api"
 import type { PacketLogEntry } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
@@ -40,12 +40,15 @@ function formatPacketType(log: PacketLogEntry): string {
 }
 
 function formatLogTime(log: PacketLogEntry): string {
-  if (log.device_time_text) {
-    return log.device_time_text
-  }
   const parsed = Date.parse(log.collected_at)
   if (Number.isNaN(parsed)) return "—"
   return new Date(parsed).toLocaleString()
+}
+
+function formatDeviceClock(log: PacketLogEntry): string | null {
+  const parts = [log.device_time_text, log.device_date_text].filter(Boolean)
+  if (parts.length === 0) return null
+  return parts.join(" · ")
 }
 
 export default function Logs() {
@@ -82,10 +85,18 @@ export default function Logs() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Packet Logs</h1>
-        <Badge variant="outline">{logs.length} entries</Badge>
+        <Badge variant="outline">Showing {logs.length} recent</Badge>
       </div>
 
       <Card>
+        <div className="border-b px-4 py-3">
+          <CardDescription>
+            Route: <span className="font-mono">F</span> flood,{" "}
+            <span className="font-mono">D</span> direct. ADVERT, PATH, TRACE,
+            and CONTROL entries are routing or control metadata rather than
+            user messages.
+          </CardDescription>
+        </div>
         <CardContent className="p-0">
           <div className="max-h-[calc(100vh-10rem)] overflow-y-auto divide-y divide-border">
             {logs.length === 0 ? (
@@ -95,18 +106,27 @@ export default function Logs() {
             ) : null}
             {logs.map((log) => {
               if (log.parse_status === "raw_only") {
+                const deviceClock = formatDeviceClock(log)
                 return (
-                  <div
-                    key={log.id}
-                    className="px-3 py-1.5 font-mono text-xs text-muted-foreground break-all"
-                  >
-                    {log.raw_line}
+                  <div key={log.id} className="px-3 py-2 space-y-1">
+                    <div className="font-mono text-[11px] text-muted-foreground flex flex-wrap gap-x-3">
+                      <span>{formatLogTime(log)}</span>
+                      {deviceClock && (
+                        <span className="text-[10px]">
+                          device {deviceClock}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-xs text-muted-foreground break-all">
+                      {log.raw_line}
+                    </div>
                   </div>
                 )
               }
 
               const isRx = log.direction === "RX"
               const typeName = formatPacketType(log)
+              const deviceClock = formatDeviceClock(log)
 
               return (
                 <div key={log.id} className="px-3 py-2 flex gap-3">
@@ -142,6 +162,11 @@ export default function Logs() {
                     {/* Detail line */}
                     <div className="font-mono text-[11px] text-muted-foreground flex flex-wrap gap-x-3">
                       <span>{formatLogTime(log)}</span>
+                      {deviceClock && (
+                        <span className="text-[10px]">
+                          device {deviceClock}
+                        </span>
+                      )}
                       <span>
                         {log.total_len ?? log.payload_len ?? "?"} bytes
                       </span>

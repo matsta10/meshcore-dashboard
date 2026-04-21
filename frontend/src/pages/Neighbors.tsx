@@ -1,6 +1,6 @@
 import { startTransition, useEffect, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -63,6 +63,12 @@ export default function Neighbors() {
 
       <Card>
         <CardContent className="p-0">
+          <div className="border-b px-4 py-3">
+            <CardDescription>
+              Based on recent zero-hop adverts heard by this repeater, not a
+              full mesh topology map.
+            </CardDescription>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

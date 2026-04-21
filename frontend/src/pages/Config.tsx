@@ -19,21 +19,31 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
-import type { ConfigChangelogEntry, ConfigEntry } from "@/lib/types"
+import type {
+  ConfigCategory,
+  ConfigChangelogEntry,
+  ConfigEntry,
+} from "@/lib/types"
 
 const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power", "password"])
 
-type ConfigCategory = {
-  id: string
-  label: string
-  keys: string[]
-}
-
 const CONFIG_CATEGORIES: ConfigCategory[] = [
-  { id: "radio", label: "Radio", keys: ["freq", "bw", "sf", "cr", "tx_power"] },
-  { id: "network", label: "Network", keys: ["name"] },
-  { id: "security", label: "Security", keys: ["pub.key"] },
-  { id: "system", label: "System", keys: ["password", "guest"] },
+  {
+    id: "radio",
+    label: "Radio",
+    keys: ["freq", "bw", "sf", "cr", "tx_power", "radio.rxgain"],
+  },
+  { id: "network", label: "Network", keys: ["name", "lat", "lon"] },
+  {
+    id: "security",
+    label: "Security",
+    keys: ["pub.key", "guest.password"],
+  },
+  {
+    id: "system",
+    label: "System",
+    keys: ["owner.info", "adc.multiplier", "powersaving", "password", "guest"],
+  },
 ]
 
 const CONFIG_DESCRIPTIONS: Record<string, string> = {
@@ -42,8 +52,15 @@ const CONFIG_DESCRIPTIONS: Record<string, string> = {
   sf: "Spreading factor",
   cr: "Coding rate",
   tx_power: "Transmit power (dBm)",
+  "radio.rxgain": "Boosted receive gain mode on supported SX12xx radios",
   name: "Device name on mesh",
+  lat: "Latitude for the node's reported position",
+  lon: "Longitude for the node's reported position",
   "pub.key": "Public key (read-only)",
+  "guest.password": "Guest access password (masked)",
+  "owner.info": "Operator or site information broadcast by the node",
+  "adc.multiplier": "Board-specific battery calibration factor",
+  powersaving: "Repeater power-saving mode",
   password: "Admin password (masked)",
   guest: "Guest password (masked)",
 }
@@ -91,6 +108,10 @@ function getCategoryKeys(
   return [...new Set([...category.keys, ...uncategorizedKeys])].filter(
     (key) => key in configByKey
   )
+}
+
+type VisibleCategory = ConfigCategory & {
+  visibleKeys: string[]
 }
 
 export default function Config() {
@@ -170,6 +191,12 @@ export default function Config() {
   const assignedKeys = new Set(
     CONFIG_CATEGORIES.flatMap((category) => category.keys)
   )
+  const visibleCategories: VisibleCategory[] = CONFIG_CATEGORIES.map(
+    (category) => ({
+      ...category,
+      visibleKeys: getCategoryKeys(category, config, configByKey, assignedKeys),
+    })
+  ).filter((category) => category.visibleKeys.length > 0)
 
   return (
     <div className="space-y-4">
@@ -185,104 +212,94 @@ export default function Config() {
         <CardHeader>
           <CardTitle>Settings</CardTitle>
           <CardDescription>
-            Review and update the repeater configuration by category.
+            Radio, network, security, and system settings synced from the
+            repeater.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue={CONFIG_CATEGORIES[0].id}>
+          <Tabs defaultValue={visibleCategories[0]?.id}>
             <TabsList variant="line">
-              {CONFIG_CATEGORIES.map((cat) => (
+              {visibleCategories.map((cat) => (
                 <TabsTrigger key={cat.id} value={cat.id}>
                   {cat.label}
                 </TabsTrigger>
               ))}
             </TabsList>
 
-            {CONFIG_CATEGORIES.map((cat) => {
-              const categoryKeys = getCategoryKeys(
-                cat,
-                config,
-                configByKey,
-                assignedKeys
-              )
+            {visibleCategories.length === 0 ? (
+              <p className="py-4 text-center text-xs text-muted-foreground">
+                No synced configuration values available from this repeater yet.
+              </p>
+            ) : null}
+
+            {visibleCategories.map((cat) => {
               return (
                 <TabsContent key={cat.id} value={cat.id} className="pt-2">
-                  {categoryKeys.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-muted-foreground">
-                      No settings in this category
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-44">Setting</TableHead>
-                          <TableHead>Value</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {categoryKeys.map((key) => {
-                          const entry = configByKey[key]
-                          return (
-                            <TableRow key={key}>
-                              <TableCell className="w-44 align-top py-2">
-                                <span className="text-xs font-bold">{key}</span>
-                                {CONFIG_DESCRIPTIONS[key] && (
-                                  <p className="text-xs text-muted-foreground">
-                                    {CONFIG_DESCRIPTIONS[key]}
-                                  </p>
-                                )}
-                              </TableCell>
-                              <TableCell className="py-2">
-                                <div className="flex items-center gap-2">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-44">Setting</TableHead>
+                        <TableHead>Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {cat.visibleKeys.map((key) => {
+                        const entry = configByKey[key]
+                        return (
+                          <TableRow key={key}>
+                            <TableCell className="w-44 align-top py-2">
+                              <span className="text-xs font-bold">{key}</span>
+                              {CONFIG_DESCRIPTIONS[key] && (
+                                <p className="text-xs text-muted-foreground">
+                                  {CONFIG_DESCRIPTIONS[key]}
+                                </p>
+                              )}
+                            </TableCell>
+                            <TableCell className="py-2">
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editValues[key] ?? ""}
+                                  onChange={(e) =>
+                                    updateEditValue(key, e.target.value)
+                                  }
+                                  type={
+                                    entry.value === "***" ? "password" : "text"
+                                  }
+                                  className="font-mono text-xs h-7 flex-1"
+                                />
+                                {CRITICAL_PARAMS.has(key) && isDirty(key) && (
                                   <Input
-                                    value={editValues[key] ?? ""}
+                                    placeholder="Confirm value"
+                                    value={confirmValues[key] ?? ""}
                                     onChange={(e) =>
-                                      updateEditValue(key, e.target.value)
+                                      updateConfirmValue(key, e.target.value)
                                     }
-                                    type={
-                                      entry.value === "***"
-                                        ? "password"
-                                        : "text"
-                                    }
-                                    className="font-mono text-xs h-7 flex-1"
+                                    className="font-mono text-xs h-7 w-36"
                                   />
-                                  {CRITICAL_PARAMS.has(key) &&
-                                    isDirty(key) && (
-                                      <Input
-                                        placeholder="Confirm value"
-                                        value={confirmValues[key] ?? ""}
-                                        onChange={(e) =>
-                                          updateConfirmValue(key, e.target.value)
-                                        }
-                                        className="font-mono text-xs h-7 w-36"
-                                      />
-                                    )}
-                                  {isDirty(key) && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-xs shrink-0"
-                                    >
-                                      modified
-                                    </Badge>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleSave(key)}
-                                    disabled={
-                                      !isDirty(key) || saving === key
-                                    }
-                                    className="shrink-0"
+                                )}
+                                {isDirty(key) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-xs shrink-0"
                                   >
-                                    {saving === key ? "..." : "Save"}
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )
-                        })}
-                      </TableBody>
-                    </Table>
-                  )}
+                                    modified
+                                  </Badge>
+                                )}
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSave(key)}
+                                  disabled={!isDirty(key) || saving === key}
+                                  className="shrink-0"
+                                >
+                                  {saving === key ? "..." : "Save"}
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
                 </TabsContent>
               )
             })}
@@ -294,7 +311,7 @@ export default function Config() {
         <CardHeader>
           <CardTitle>Change History</CardTitle>
           <CardDescription>
-            Recent configuration changes recorded by the dashboard.
+            Dashboard-applied config writes, newest first.
           </CardDescription>
         </CardHeader>
         <CardContent>

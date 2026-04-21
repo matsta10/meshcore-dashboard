@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -29,6 +30,20 @@ function formatUptime(secs: number | null): string {
   return `${m}m`
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) return "—"
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return "—"
+  return new Date(parsed).toLocaleString()
+}
+
+function epochSecondsFromTimestamp(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return null
+  return Math.floor(parsed / 1000)
+}
+
 function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: boolean }) {
   const label = !wsConnected ? "reconnecting" : state
   const color = !wsConnected
@@ -46,12 +61,24 @@ function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: b
   )
 }
 
+type ClockNotice = {
+  tone: "success" | "error"
+  text: string
+} | null
+
 export default function Dashboard() {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [history, setHistory] = useState<StatsResponse[]>([])
   const [stale, setStale] = useState(false)
+  const [localNow, setLocalNow] = useState(() => Date.now())
+  const [clockOutput, setClockOutput] = useState<string | null>(null)
+  const [clockNotice, setClockNotice] = useState<ClockNotice>(null)
+  const [clockBusy, setClockBusy] = useState<"read" | "sync" | "set" | null>(
+    null
+  )
   const { lastMessage, connected, send } = useWebSocket()
+  const serverEpochSeconds = epochSecondsFromTimestamp(stats?.timestamp ?? null)
 
   useEffect(() => {
     let cancelled = false
@@ -78,6 +105,46 @@ export default function Dashboard() {
           setHistory(r.data)
         })
       })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setLocalNow(Date.now())
+    }, 1000)
+    return () => {
+      window.clearInterval(id)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadClock = async () => {
+      setClockBusy("read")
+      try {
+        const response = await api.readClock()
+        if (cancelled) return
+        startTransition(() => {
+          setClockOutput(response.output.trim() || "—")
+          setClockNotice(null)
+        })
+      } catch (e) {
+        if (!cancelled) {
+          setClockNotice({
+            tone: "error",
+            text: `Failed to read device clock: ${e}`,
+          })
+        }
+      } finally {
+        if (!cancelled) setClockBusy(null)
+      }
+    }
+
+    void loadClock()
 
     return () => {
       cancelled = true
@@ -124,6 +191,67 @@ export default function Dashboard() {
     }
   }, [send])
 
+  const refreshClock = async (options?: { silentFailure?: boolean }) => {
+    setClockBusy("read")
+    try {
+      const response = await api.readClock()
+      startTransition(() => {
+        setClockOutput(response.output.trim() || "—")
+      })
+    } catch (e) {
+      if (!options?.silentFailure) {
+        setClockNotice({
+          tone: "error",
+          text: `Failed to read device clock: ${e}`,
+        })
+      }
+    } finally {
+      setClockBusy(null)
+    }
+  }
+
+  const handleSyncClock = async () => {
+    setClockBusy("sync")
+    setClockNotice(null)
+    try {
+      const response = await api.syncClock()
+      setClockNotice({ tone: "success", text: response.detail })
+      await refreshClock({ silentFailure: true })
+    } catch (e) {
+      setClockNotice({
+        tone: "error",
+        text: `Failed to sync clock: ${e}`,
+      })
+    } finally {
+      setClockBusy(null)
+    }
+  }
+
+  const handleSetClockToNow = async () => {
+    if (serverEpochSeconds === null) {
+      setClockNotice({
+        tone: "error",
+        text: "Server time is unavailable, so Set to Now is disabled.",
+      })
+      return
+    }
+
+    setClockBusy("set")
+    setClockNotice(null)
+    try {
+      const response = await api.setClock(serverEpochSeconds)
+      setClockNotice({ tone: "success", text: response.detail })
+      await refreshClock({ silentFailure: true })
+    } catch (e) {
+      setClockNotice({
+        tone: "error",
+        text: `Failed to set clock: ${e}`,
+      })
+    } finally {
+      setClockBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header bar */}
@@ -147,6 +275,71 @@ export default function Dashboard() {
           Device response could not be parsed — stats may be outdated
         </div>
       )}
+
+      <Card>
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-sm text-muted-foreground">
+            Clock / Admin
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] md:items-start">
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Local time
+                </p>
+                <p className="font-mono text-sm">{new Date(localNow).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Device clock
+                </p>
+                <p className="font-mono text-xs whitespace-pre-wrap break-words text-foreground/90">
+                  {clockOutput ?? "Reading clock..."}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Server time
+                </p>
+                <p className="font-mono text-sm">
+                  {formatDateTime(stats?.timestamp ?? null)}
+                </p>
+                {serverEpochSeconds === null && (
+                  <p className="text-xs text-muted-foreground">
+                    Server time unavailable; Set to Now is disabled.
+                  </p>
+                )}
+              </div>
+              {clockNotice && (
+                <p
+                  className={`text-xs ${clockNotice.tone === "success" ? "text-emerald-400" : "text-red-400"}`}
+                >
+                  {clockNotice.text}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <Button
+                size="sm"
+                onClick={handleSyncClock}
+                disabled={clockBusy !== null}
+              >
+                {clockBusy === "sync" ? "Syncing..." : "Sync Clock"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSetClockToNow}
+                disabled={clockBusy !== null || serverEpochSeconds === null}
+              >
+                {clockBusy === "set" ? "Setting..." : "Set to Now"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats grid — two columns */}
       <div className="grid grid-cols-2 gap-4">

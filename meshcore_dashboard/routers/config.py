@@ -25,7 +25,23 @@ _connection_ref: RepeaterConnection | None = None
 CRITICAL_PARAMS = {"freq", "bw", "sf", "cr", "tx_power"}
 
 # Password keys are masked on read
-PASSWORD_KEYS = {"password", "guest"}
+PASSWORD_KEYS = {"password", "guest", "guest.password"}
+MASKED_VALUE = "***"
+
+
+def _mask_value(key: str, value: str | None) -> str | None:
+    return MASKED_VALUE if key in PASSWORD_KEYS and value is not None else value
+
+
+def _mask_changelog_entry(entry: ConfigChangelog) -> ConfigChangelogEntry:
+    return ConfigChangelogEntry(
+        id=entry.id,
+        timestamp=entry.timestamp,
+        key=entry.key,
+        old_value=_mask_value(entry.key, entry.old_value),
+        new_value=_mask_value(entry.key, entry.new_value),
+        source=entry.source,
+    )
 
 
 def set_dependencies(
@@ -48,7 +64,7 @@ async def get_all_config() -> list[ConfigEntry]:
         rows = result.scalars().all()
         entries = []
         for row in rows:
-            value = "***" if row.key in PASSWORD_KEYS else row.value
+            value = _mask_value(row.key, row.value)
             entries.append(
                 ConfigEntry(
                     key=row.key,
@@ -68,17 +84,7 @@ async def get_changelog() -> list[ConfigChangelogEntry]:
             select(ConfigChangelog).order_by(ConfigChangelog.timestamp.desc())
         )
         rows = result.scalars().all()
-        return [
-            ConfigChangelogEntry(
-                id=row.id,
-                timestamp=row.timestamp,
-                key=row.key,
-                old_value=row.old_value,
-                new_value=row.new_value,
-                source=row.source,
-            )
-            for row in rows
-        ]
+        return [_mask_changelog_entry(row) for row in rows]
 
 
 @router.get("/api/config/{key}")
@@ -92,7 +98,7 @@ async def get_config_key(key: str) -> ConfigEntry:
         row = result.scalar_one_or_none()
         if not row:
             raise HTTPException(status_code=404, detail=f"Key '{key}' not found")
-        value = "***" if key in PASSWORD_KEYS else row.value
+        value = _mask_value(key, row.value)
         return ConfigEntry(key=row.key, value=value, updated_at=row.updated_at)
 
 
@@ -145,14 +151,7 @@ async def set_config_key(key: str, body: ConfigSetRequest) -> ConfigChangelogEnt
         await session.commit()
         await session.refresh(changelog)
 
-        return ConfigChangelogEntry(
-            id=changelog.id,
-            timestamp=changelog.timestamp,
-            key=changelog.key,
-            old_value=changelog.old_value,
-            new_value=changelog.new_value,
-            source=changelog.source,
-        )
+        return _mask_changelog_entry(changelog)
 
 
 @router.post("/api/config/{key}/revert")
@@ -202,11 +201,4 @@ async def revert_config_key(key: str) -> ConfigChangelogEntry:
         await session.commit()
         await session.refresh(revert_entry)
 
-        return ConfigChangelogEntry(
-            id=revert_entry.id,
-            timestamp=revert_entry.timestamp,
-            key=revert_entry.key,
-            old_value=revert_entry.old_value,
-            new_value=revert_entry.new_value,
-            source=revert_entry.source,
-        )
+        return _mask_changelog_entry(revert_entry)

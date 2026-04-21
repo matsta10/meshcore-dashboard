@@ -45,6 +45,19 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ value, confirm_value }),
     }),
+  readClock: () =>
+    request<import("./types").ClockReadResponse>("/api/admin/clock/read", {
+      method: "POST",
+    }),
+  syncClock: () =>
+    request<import("./types").AdminActionResponse>("/api/admin/clock/sync", {
+      method: "POST",
+    }),
+  setClock: (epoch_seconds: number) =>
+    request<import("./types").AdminActionResponse>("/api/admin/clock/set", {
+      method: "POST",
+      body: JSON.stringify({ epoch_seconds }),
+    }),
   getNeighbors: () =>
     request<import("./types").NeighborResponse[]>("/api/neighbors"),
   getLogs: (limit = 100, offset = 0) =>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StatsResponse(BaseModel):
@@ -86,6 +86,14 @@ class CommandRequest(BaseModel):
 
 class CommandResponse(BaseModel):
     output: str
+
+
+class ClockSetRequest(BaseModel):
+    epoch_seconds: int = Field(strict=True, ge=0, le=4_102_444_800)
+
+
+class AdminActionResponse(BaseModel):
+    detail: str
 
 
 class PacketLogEntry(BaseModel):
