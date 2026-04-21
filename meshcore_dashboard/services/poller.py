@@ -147,10 +147,15 @@ class Poller:
     async def sync_device_state(self, *, detect_drift: bool) -> None:
         """Refresh a bounded set of config and device info from the repeater."""
         config_values: dict[str, str] = {}
+        unsupported_keys: set[str] = set()
         for key in CONFIG_SYNC_KEYS:
             try:
                 config_values[key] = await self._connection.get_config_value(key)
-            except (ConnectionError, TimeoutError, ParseError):
+            except ParseError as e:
+                if "??:" in e.raw:
+                    unsupported_keys.add(key)
+                logger.debug("Config sync skipped for key %s", key)
+            except (ConnectionError, TimeoutError):
                 logger.debug("Config sync skipped for key %s", key)
 
         firmware_ver = await self._read_single_line_command("ver")
@@ -162,6 +167,11 @@ class Poller:
                 select(ConfigCurrent).where(ConfigCurrent.key.in_(CONFIG_SYNC_KEYS))
             )
             existing_rows = {row.key: row for row in existing_result.scalars().all()}
+
+            for key in unsupported_keys:
+                existing = existing_rows.get(key)
+                if existing:
+                    await session.delete(existing)
 
             for key, new_value in config_values.items():
                 existing = existing_rows.get(key)

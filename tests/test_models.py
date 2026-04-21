@@ -14,7 +14,8 @@ from meshcore_dashboard.models import (
     StatsSnapshot,
 )
 from meshcore_dashboard.routers import config as config_router
-from meshcore_dashboard.services.poller import CONFIG_SYNC_KEYS
+from meshcore_dashboard.serial.parser import ParseError
+from meshcore_dashboard.services.poller import CONFIG_SYNC_KEYS, Poller
 
 
 @pytest.fixture
@@ -147,6 +148,55 @@ async def test_config_changelog_masks_password_values():
         config_router._session_factory_ref = original_session_factory
         config_router._connection_ref = original_connection
         await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_sync_device_state_removes_stale_unsupported_config_keys():
+    engine, session_factory = await create_engine_and_tables("sqlite+aiosqlite://")
+
+    class _FakeConnection:
+        async def get_config_value(self, key: str) -> str:
+            if key == "cr":
+                raise ParseError("No config value line found", "get cr\r\n  -> ??: cr\r\n")
+            values = {
+                "name": "Blue Orchid",
+                "freq": "869.6179809",
+                "radio.rxgain": "on",
+                "guest.password": "secret",
+                "owner.info": "",
+                "lat": "51.581108",
+                "lon": "0.1757428",
+            }
+            if key not in values:
+                raise ParseError("No config value line found", "")
+            return values[key]
+
+        async def send_command(self, cmd: str, timeout: float = 1.0) -> str:
+            if cmd == "ver":
+                return "  -> v1.14.1\r\n"
+            if cmd == "board":
+                return "  -> Generic ESP32\r\n"
+            raise AssertionError(f"unexpected command: {cmd}")
+
+    async with session_factory() as session:
+        session.add(
+            ConfigCurrent(
+                key="cr",
+                value="Blue Orchid",
+                updated_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    poller = Poller(connection=_FakeConnection(), session_factory=session_factory)  # type: ignore[arg-type]
+    await poller.sync_device_state(detect_drift=False)
+
+    async with session_factory() as session:
+        result = await session.execute(select(ConfigCurrent).order_by(ConfigCurrent.key))
+        keys = [row.key for row in result.scalars().all()]
+        assert "cr" not in keys
+
+    await engine.dispose()
 
 
 def test_packet_log_has_structured_fields():
