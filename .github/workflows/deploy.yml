@@ -9,6 +9,8 @@ on:
 jobs:
   deploy:
     runs-on: [self-hosted, meshcore]
+    env:
+      PATH: /root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Pull latest code
         run: cd /opt/meshcore-dashboard && git fetch origin && git checkout ${{ github.ref_name }} && git pull origin ${{ github.ref_name }}
