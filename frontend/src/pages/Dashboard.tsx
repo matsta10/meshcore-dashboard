@@ -19,8 +19,10 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
 } from "@/components/ui/chart"
-import { LineChart, Line, XAxis, YAxis } from "recharts"
+import { CartesianGrid, LineChart, Line, XAxis, YAxis } from "recharts"
 
 const signalChartConfig = {
   last_rssi: {
@@ -443,8 +445,9 @@ export default function Dashboard() {
             <CardTitle className="text-sm text-muted-foreground">Signal (24h)</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3">
-            <ChartContainer config={signalChartConfig} className="h-[160px] w-full">
+            <ChartContainer config={signalChartConfig} className="h-[200px] w-full">
               <LineChart data={history} accessibilityLayer>
+                <CartesianGrid vertical={false} />
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) =>
@@ -454,10 +457,19 @@ export default function Dashboard() {
                     })
                   }
                   tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
                   tick={{ fontSize: 10 }}
                 />
-                <YAxis tick={{ fontSize: 10 }} />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(v) => `${v} dBm`}
+                />
+                <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+                <ChartLegend content={<ChartLegendContent />} />
                 <Line
                   type="monotone"
                   dataKey="last_rssi"
