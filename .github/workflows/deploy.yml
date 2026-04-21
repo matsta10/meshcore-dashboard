@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, meshcore]
+    steps:
+      - name: Pull latest code
+        run: cd /opt/meshcore-dashboard && git fetch origin && git checkout ${{ github.ref_name }} && git pull origin ${{ github.ref_name }}
+
+      - name: Install Python dependencies
+        run: cd /opt/meshcore-dashboard && uv sync --frozen
+
+      - name: Build frontend
+        run: cd /opt/meshcore-dashboard/frontend && npm install && npm run build
+
+      - name: Run database migrations
+        run: cd /opt/meshcore-dashboard && uv run python -c "from meshcore_dashboard.models import run_migrations; import asyncio; asyncio.run(run_migrations())" 2>/dev/null || true
+
+      - name: Restart service
+        run: systemctl restart meshcore-dashboard
+
+      - name: Verify service is running
+        run: sleep 3 && systemctl is-active meshcore-dashboard
