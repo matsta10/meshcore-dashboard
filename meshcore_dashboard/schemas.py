@@ -7,6 +7,25 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class CommandHealthResponse(BaseModel):
+    ok: bool
+    last_success_at: datetime | None = None
+    last_error: str | None = None
+
+
+class LogCollectorHealthResponse(BaseModel):
+    last_log_poll_at: datetime | None = None
+    last_log_insert_at: datetime | None = None
+    unchanged_buffer_count: int = 0
+    last_log_buffer_hash: str | None = None
+    last_log_error: str | None = None
+
+
+class TelemetryHealthResponse(BaseModel):
+    stats: dict[str, CommandHealthResponse]
+    logs: LogCollectorHealthResponse
+
+
 class StatsResponse(BaseModel):
     timestamp: datetime
     battery_mv: int | None = None
@@ -26,6 +45,9 @@ class StatsResponse(BaseModel):
     direct_tx: int | None = None
     recv_errors: int | None = None
     stale: bool = False
+    freshness: str = "fresh"
+    stale_reason: str | None = None
+    stats_health: dict[str, CommandHealthResponse] = {}
 
 
 class StatsHistoryResponse(BaseModel):
@@ -77,6 +99,7 @@ class StatusResponse(BaseModel):
     connection_state: str
     device_info: DeviceInfoResponse | None = None
     consecutive_failures: int = 0
+    telemetry: TelemetryHealthResponse | None = None
 
 
 class CommandRequest(BaseModel):

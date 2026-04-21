@@ -18,6 +18,7 @@ from meshcore_dashboard.models import (
     StatsSnapshot,
 )
 from meshcore_dashboard.schemas import (
+    CommandHealthResponse,
     StatsHistoryResponse,
     StatsResponse,
 )
@@ -74,6 +75,19 @@ async def stats_current() -> StatsResponse | None:
         if not row:
             return None
         stale = _poller_ref.is_stale if _poller_ref else False
+        stats_health = (
+            {
+                cmd: CommandHealthResponse(
+                    ok=bool(data["ok"]),
+                    last_success_at=data["last_success_at"],  # type: ignore[arg-type]
+                    last_error=data["last_error"],  # type: ignore[arg-type]
+                )
+                for cmd, data in _poller_ref.stats_health.items()
+            }
+            if _poller_ref
+            else {}
+        )
+        freshness = _poller_ref.stats_freshness if _poller_ref else "fresh"
         return StatsResponse(
             timestamp=row.timestamp,
             battery_mv=row.battery_mv,
@@ -93,6 +107,9 @@ async def stats_current() -> StatsResponse | None:
             direct_tx=row.direct_tx,
             recv_errors=row.recv_errors,
             stale=stale,
+            freshness=freshness,
+            stale_reason=_poller_ref.last_parse_error if _poller_ref else None,
+            stats_health=stats_health,
         )
 
 

@@ -1,5 +1,4 @@
 import { startTransition, useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -9,7 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
-import type { StatsResponse, StatusResponse } from "@/lib/types"
+import type { StatusResponse, StatsResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
 import {
   LineChart,
@@ -37,13 +36,6 @@ function formatDateTime(value: string | null): string {
   return new Date(parsed).toLocaleString()
 }
 
-function epochSecondsFromTimestamp(value: string | null): number | null {
-  if (!value) return null
-  const parsed = Date.parse(value)
-  if (Number.isNaN(parsed)) return null
-  return Math.floor(parsed / 1000)
-}
-
 function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: boolean }) {
   const label = !wsConnected ? "reconnecting" : state
   const color = !wsConnected
@@ -61,24 +53,12 @@ function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: b
   )
 }
 
-type ClockNotice = {
-  tone: "success" | "error"
-  text: string
-} | null
-
 export default function Dashboard() {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [history, setHistory] = useState<StatsResponse[]>([])
   const [stale, setStale] = useState(false)
-  const [localNow, setLocalNow] = useState(() => Date.now())
-  const [clockOutput, setClockOutput] = useState<string | null>(null)
-  const [clockNotice, setClockNotice] = useState<ClockNotice>(null)
-  const [clockBusy, setClockBusy] = useState<"read" | "sync" | "set" | null>(
-    null
-  )
   const { lastMessage, connected, send } = useWebSocket()
-  const serverEpochSeconds = epochSecondsFromTimestamp(stats?.timestamp ?? null)
 
   useEffect(() => {
     let cancelled = false
@@ -111,59 +91,49 @@ export default function Dashboard() {
     }
   }, [])
 
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setLocalNow(Date.now())
-    }, 1000)
-    return () => {
-      window.clearInterval(id)
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const loadClock = async () => {
-      setClockBusy("read")
-      try {
-        const response = await api.readClock()
-        if (cancelled) return
-        startTransition(() => {
-          setClockOutput(response.output.trim() || "—")
-          setClockNotice(null)
-        })
-      } catch (e) {
-        if (!cancelled) {
-          setClockNotice({
-            tone: "error",
-            text: `Failed to read device clock: ${e}`,
-          })
-        }
-      } finally {
-        if (!cancelled) setClockBusy(null)
-      }
-    }
-
-    void loadClock()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   // Update from WS messages
   useEffect(() => {
     if (lastMessage?.type === "stats_update") {
       startTransition(() => {
-        setStats(lastMessage.data as unknown as StatsResponse)
+        setStats((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(lastMessage.data as Partial<StatsResponse>),
+                timestamp:
+                  typeof (lastMessage.data as { timestamp?: string }).timestamp === "string"
+                    ? (lastMessage.data as { timestamp: string }).timestamp
+                    : prev.timestamp,
+              }
+            : prev
+        )
       })
     } else if (lastMessage?.type === "parse_error") {
       startTransition(() => {
         setStale(true)
+        setStats((prev) =>
+          prev
+            ? {
+                ...prev,
+                stale: true,
+                freshness: prev.freshness === "fresh" ? "partial" : prev.freshness,
+              }
+            : prev
+        )
       })
     } else if (lastMessage?.type === "parse_cleared") {
       startTransition(() => {
         setStale(false)
+        setStats((prev) =>
+          prev
+            ? {
+                ...prev,
+                stale: false,
+                freshness: "fresh",
+                stale_reason: null,
+              }
+            : prev
+        )
       })
     } else if (lastMessage?.type === "connection_status") {
       startTransition(() => {
@@ -191,66 +161,9 @@ export default function Dashboard() {
     }
   }, [send])
 
-  const refreshClock = async (options?: { silentFailure?: boolean }) => {
-    setClockBusy("read")
-    try {
-      const response = await api.readClock()
-      startTransition(() => {
-        setClockOutput(response.output.trim() || "—")
-      })
-    } catch (e) {
-      if (!options?.silentFailure) {
-        setClockNotice({
-          tone: "error",
-          text: `Failed to read device clock: ${e}`,
-        })
-      }
-    } finally {
-      setClockBusy(null)
-    }
-  }
-
-  const handleSyncClock = async () => {
-    setClockBusy("sync")
-    setClockNotice(null)
-    try {
-      const response = await api.syncClock()
-      setClockNotice({ tone: "success", text: response.detail })
-      await refreshClock({ silentFailure: true })
-    } catch (e) {
-      setClockNotice({
-        tone: "error",
-        text: `Failed to sync clock: ${e}`,
-      })
-    } finally {
-      setClockBusy(null)
-    }
-  }
-
-  const handleSetClockToNow = async () => {
-    if (serverEpochSeconds === null) {
-      setClockNotice({
-        tone: "error",
-        text: "Server time is unavailable, so Set to Now is disabled.",
-      })
-      return
-    }
-
-    setClockBusy("set")
-    setClockNotice(null)
-    try {
-      const response = await api.setClock(serverEpochSeconds)
-      setClockNotice({ tone: "success", text: response.detail })
-      await refreshClock({ silentFailure: true })
-    } catch (e) {
-      setClockNotice({
-        tone: "error",
-        text: `Failed to set clock: ${e}`,
-      })
-    } finally {
-      setClockBusy(null)
-    }
-  }
+  const statsHealth = stats?.stats_health ?? {}
+  const unhealthyStats = Object.entries(statsHealth).filter(([, health]) => !health.ok)
+  const telemetry = status?.telemetry
 
   return (
     <div className="space-y-4">
@@ -272,74 +185,91 @@ export default function Dashboard() {
 
       {stale && (
         <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-200">
-          Device response could not be parsed — stats may be outdated
+          {stats?.freshness === "partial"
+            ? `Telemetry is partial: ${unhealthyStats.map(([name]) => name).join(", ")} need attention`
+            : stats?.stale_reason ?? "Device response could not be parsed — stats may be outdated"}
         </div>
       )}
 
-      <Card>
-        <CardHeader className="pb-2 pt-3 px-4">
-          <CardTitle className="text-sm text-muted-foreground">
-            Clock / Admin
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-4 pb-3">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] md:items-start">
-            <div className="space-y-2">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Local time
-                </p>
-                <p className="font-mono text-sm">{new Date(localNow).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Device clock
-                </p>
-                <p className="font-mono text-xs whitespace-pre-wrap break-words text-foreground/90">
-                  {clockOutput ?? "Reading clock..."}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Server time
-                </p>
-                <p className="font-mono text-sm">
-                  {formatDateTime(stats?.timestamp ?? null)}
-                </p>
-                {serverEpochSeconds === null && (
-                  <p className="text-xs text-muted-foreground">
-                    Server time unavailable; Set to Now is disabled.
-                  </p>
-                )}
-              </div>
-              {clockNotice && (
-                <p
-                  className={`text-xs ${clockNotice.tone === "success" ? "text-emerald-400" : "text-red-400"}`}
-                >
-                  {clockNotice.text}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 md:justify-end">
-              <Button
-                size="sm"
-                onClick={handleSyncClock}
-                disabled={clockBusy !== null}
-              >
-                {clockBusy === "sync" ? "Syncing..." : "Sync Clock"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSetClockToNow}
-                disabled={clockBusy !== null || serverEpochSeconds === null}
-              >
-                {clockBusy === "set" ? "Setting..." : "Set to Now"}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-muted-foreground">Telemetry</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Snapshot</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {formatDateTime(stats?.timestamp ?? null)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Freshness</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {stats?.freshness ?? "unknown"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">stats-core</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {statsHealth["stats-core"]?.ok ? "ok" : "degraded"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">stats-radio</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {statsHealth["stats-radio"]?.ok ? "ok" : "degraded"}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">stats-packets</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {statsHealth["stats-packets"]?.ok ? "ok" : "degraded"}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm text-muted-foreground">Logs</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <Table>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Last poll</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {formatDateTime(telemetry?.logs.last_log_poll_at ?? null)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Last insert</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {formatDateTime(telemetry?.logs.last_log_insert_at ?? null)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Unchanged buffer</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {telemetry?.logs.unchanged_buffer_count ?? 0}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-xs py-1.5 text-muted-foreground">Collector error</TableCell>
+                  <TableCell className="text-xs py-1.5 font-mono text-right">
+                    {telemetry?.logs.last_log_error ?? "—"}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Stats grid — two columns */}
       <div className="grid grid-cols-2 gap-4">

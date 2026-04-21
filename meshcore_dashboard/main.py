@@ -61,14 +61,14 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         logger.warning("Could not connect to repeater: %s", e)
 
     # Wire dependencies
-    status_router.set_dependencies(connection, session_factory)
+    poller = Poller(connection, session_factory)
+    status_router.set_dependencies(connection, session_factory, poller=poller)
     config_router.set_dependencies(connection, session_factory)
     neighbors_router.set_dependencies(connection, session_factory)
     logs_router.set_dependencies(connection, session_factory)
     commands_router.set_dependencies(connection)
 
     # Start background services
-    poller = Poller(connection, session_factory)
     stats_router.set_dependencies(session_factory, poller=poller)
     if connection.state.value == "connected":
         await poller.sync_device_state(detect_drift=False)

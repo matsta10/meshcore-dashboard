@@ -82,6 +82,11 @@ class RepeaterConnection:
             raise ConnectionError(f"Serial error: {e}") from e
 
     async def _do_send(self, cmd: str, timeout: float) -> str:
+        if cmd.strip() == "log":
+            return await self._send_streaming_command(cmd, timeout)
+        return await self._send_prefixed_command(cmd, timeout)
+
+    async def _prepare_command(self, cmd: str) -> asyncio.AbstractEventLoop:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
         # The repeater can stream logs continuously, so "read until silence"
@@ -89,23 +94,57 @@ class RepeaterConnection:
         # buffer instead so interactive commands start from a known boundary.
         await loop.run_in_executor(None, self._flush_input_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
+        return loop
+
+    async def _send_prefixed_command(self, cmd: str, timeout: float) -> str:
+        assert self._serial is not None
+        loop = await self._prepare_command(cmd)
         lines: list[str] = []
         saw_response = False
         deadline = loop.time() + timeout
-        while loop.time() < deadline:
-            raw = await loop.run_in_executor(None, self._serial.readline)
-            if not raw:
-                if saw_response:
+        saved_timeout = self._serial.timeout
+        self._serial.timeout = min(0.2, timeout)
+        try:
+            while loop.time() < deadline:
+                raw = await loop.run_in_executor(None, self._serial.readline)
+                if not raw:
+                    if saw_response:
+                        break
+                    continue
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line:
+                    if saw_response:
+                        break
+                    continue
+                lines.append(line)
+                if line.startswith("  -> "):
+                    saw_response = True
+        finally:
+            self._serial.timeout = saved_timeout
+        self._consecutive_failures = 0
+        self._state = ConnectionState.CONNECTED
+        return "\r\n".join(lines)
+
+    async def _send_streaming_command(self, cmd: str, timeout: float) -> str:
+        assert self._serial is not None
+        loop = await self._prepare_command(cmd)
+        lines: list[str] = []
+        deadline = loop.time() + timeout
+        saved_timeout = self._serial.timeout
+        self._serial.timeout = min(0.2, timeout)
+        try:
+            while loop.time() < deadline:
+                raw = await loop.run_in_executor(None, self._serial.readline)
+                if not raw:
+                    continue
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if not line:
+                    continue
+                lines.append(line)
+                if line.startswith("  ->") and "EOF" in line:
                     break
-                continue
-            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-            if not line:
-                if saw_response:
-                    break
-                continue
-            lines.append(line)
-            if line.startswith("  -> "):
-                saw_response = True
+        finally:
+            self._serial.timeout = saved_timeout
         self._consecutive_failures = 0
         self._state = ConnectionState.CONNECTED
         return "\r\n".join(lines)

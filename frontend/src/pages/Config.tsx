@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table"
 import { api } from "@/lib/api"
 import type {
+  AdminActionResponse,
   ConfigCategory,
   ConfigChangelogEntry,
   ConfigEntry,
@@ -69,6 +70,13 @@ function formatTimestamp(value: string): string {
   const parsed = Date.parse(value)
   if (Number.isNaN(parsed)) return "—"
   return new Date(parsed).toLocaleString()
+}
+
+function epochSecondsFromTimestamp(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return null
+  return Math.floor(parsed / 1000)
 }
 
 function buildEditValues(entries: ConfigEntry[]): Record<string, string> {
@@ -121,6 +129,10 @@ export default function Config() {
   const [confirmValues, setConfirmValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [clockOutput, setClockOutput] = useState<string>("Loading…")
+  const [clockBusy, setClockBusy] = useState<"read" | "sync" | "set" | null>(null)
+  const [clockNotice, setClockNotice] = useState<string | null>(null)
+  const [serverNow, setServerNow] = useState<string | null>(null)
 
   const refreshData = async () => {
     try {
@@ -152,6 +164,37 @@ export default function Config() {
         if (!cancelled) setError(`Failed to load config: ${e}`)
       }
     })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadClock = async () => {
+      setClockBusy("read")
+      try {
+        const [clock, stats] = await Promise.all([
+          api.readClock(),
+          api.getStatsCurrent(),
+        ])
+        if (cancelled) return
+        startTransition(() => {
+          setClockOutput(clock.output.trim() || "—")
+          setServerNow(stats?.timestamp ?? null)
+          setClockNotice(null)
+        })
+      } catch (e) {
+        if (!cancelled) {
+          setClockNotice(`Failed to load admin clock state: ${e}`)
+        }
+      } finally {
+        if (!cancelled) setClockBusy(null)
+      }
+    }
+
+    void loadClock()
     return () => {
       cancelled = true
     }
@@ -198,6 +241,36 @@ export default function Config() {
     })
   ).filter((category) => category.visibleKeys.length > 0)
 
+  const refreshClock = async () => {
+    const [clock, stats] = await Promise.all([
+      api.readClock(),
+      api.getStatsCurrent(),
+    ])
+    startTransition(() => {
+      setClockOutput(clock.output.trim() || "—")
+      setServerNow(stats?.timestamp ?? null)
+    })
+  }
+
+  const performClockAction = async (
+    action: "sync" | "set",
+    request: Promise<AdminActionResponse>
+  ) => {
+    setClockBusy(action)
+    setClockNotice(null)
+    try {
+      const response = await request
+      setClockNotice(response.detail)
+      await refreshClock()
+    } catch (e) {
+      setClockNotice(`Clock action failed: ${e}`)
+    } finally {
+      setClockBusy(null)
+    }
+  }
+
+  const serverEpochSeconds = epochSecondsFromTimestamp(serverNow)
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Configuration</h1>
@@ -207,6 +280,61 @@ export default function Config() {
           {error}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Admin</CardTitle>
+          <CardDescription>
+            Low-frequency control actions. Operational status stays on the
+            dashboard; one-off admin actions live here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Device clock
+                </p>
+                <p className="font-mono text-xs whitespace-pre-wrap break-words">
+                  {clockOutput}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Server time
+                </p>
+                <p className="font-mono text-xs">{formatTimestamp(serverNow ?? "")}</p>
+              </div>
+              {clockNotice && (
+                <p className="text-xs text-muted-foreground">{clockNotice}</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <Button
+                size="sm"
+                onClick={() => performClockAction("sync", api.syncClock())}
+                disabled={clockBusy !== null}
+              >
+                {clockBusy === "sync" ? "Syncing..." : "Sync Clock"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  performClockAction(
+                    "set",
+                    api.setClock(serverEpochSeconds ?? 0)
+                  )
+                }
+                disabled={clockBusy !== null || serverEpochSeconds === null}
+              >
+                {clockBusy === "set" ? "Setting..." : "Set to Now"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

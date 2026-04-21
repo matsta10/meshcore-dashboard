@@ -17,12 +17,35 @@ export interface StatsResponse {
   direct_tx: number | null
   recv_errors: number | null
   stale: boolean
+  freshness: "fresh" | "partial" | "stale"
+  stale_reason: string | null
+  stats_health: Record<string, CommandHealthResponse>
 }
 
 export interface StatusResponse {
   connection_state: "connected" | "unresponsive" | "disconnected"
   device_info: DeviceInfoResponse | null
   consecutive_failures: number
+  telemetry: TelemetryHealthResponse | null
+}
+
+export interface CommandHealthResponse {
+  ok: boolean
+  last_success_at: string | null
+  last_error: string | null
+}
+
+export interface LogCollectorHealthResponse {
+  last_log_poll_at: string | null
+  last_log_insert_at: string | null
+  unchanged_buffer_count: number
+  last_log_buffer_hash: string | null
+  last_log_error: string | null
+}
+
+export interface TelemetryHealthResponse {
+  stats: Record<string, CommandHealthResponse>
+  logs: LogCollectorHealthResponse
 }
 
 export interface DeviceInfoResponse {

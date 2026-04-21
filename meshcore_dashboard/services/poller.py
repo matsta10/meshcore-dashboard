@@ -77,6 +77,24 @@ class Poller:
         self._log_started = False
         self._log_collector = LogCollector()
         self._last_parse_error: str | None = None
+        self._stats_command_health: dict[str, dict[str, object | None]] = {
+            "stats-core": {
+                "ok": False,
+                "last_success_at": None,
+                "last_error": None,
+            },
+            "stats-radio": {
+                "ok": False,
+                "last_success_at": None,
+                "last_error": None,
+            },
+            "stats-packets": {
+                "ok": False,
+                "last_success_at": None,
+                "last_error": None,
+            },
+        }
+        self._last_log_error: str | None = None
 
     @property
     def is_stale(self) -> bool:
@@ -87,13 +105,43 @@ class Poller:
     def last_parse_error(self) -> str | None:
         return self._last_parse_error
 
+    @property
+    def stats_health(self) -> dict[str, dict[str, object | None]]:
+        return {
+            cmd: data.copy()
+            for cmd, data in self._stats_command_health.items()
+        }
+
+    @property
+    def stats_freshness(self) -> str:
+        unhealthy = [
+            cmd for cmd, data in self._stats_command_health.items() if not data["ok"]
+        ]
+        if not unhealthy:
+            return "fresh"
+        if len(unhealthy) == len(self._stats_command_health):
+            return "stale"
+        return "partial"
+
+    @property
+    def last_log_error(self) -> str | None:
+        return self._last_log_error
+
     def record_parse_error(self, command: str, message: str) -> None:
         """Mark poller as stale with a formatted error message."""
         self._last_parse_error = f"{command}: {message}"
+        self._stats_command_health[command]["ok"] = False
+        self._stats_command_health[command]["last_error"] = message
 
     def clear_parse_error(self) -> None:
         """Clear stale state on successful poll."""
         self._last_parse_error = None
+
+    def record_stats_success(self, command: str, when: datetime) -> None:
+        """Mark a stats command as healthy."""
+        self._stats_command_health[command]["ok"] = True
+        self._stats_command_health[command]["last_success_at"] = when
+        self._stats_command_health[command]["last_error"] = None
 
     def start(self) -> None:
         """Start the polling loop."""
@@ -237,10 +285,12 @@ class Poller:
         await asyncio.sleep(0.5)
 
         # Collect stats from all three commands
+        failed_commands: list[str] = []
         for cmd in ("stats-core", "stats-radio", "stats-packets"):
             try:
                 data = await self._connection.get_stats_json(cmd)
                 stats_data.update(data)
+                self.record_stats_success(cmd, now)
             except ParseError as e:
                 logger.warning(
                     "Parse error for %s: %s (raw: %s)",
@@ -249,20 +299,28 @@ class Poller:
                     e.raw,
                 )
                 self.record_parse_error(cmd, str(e))
+                failed_commands.append(cmd)
                 await ws_router.broadcast({
                     "type": "parse_error",
                     "data": {"command": cmd, "message": str(e)},
                 })
             except (ConnectionError, TimeoutError) as e:
                 logger.warning("Command %s failed: %s", cmd, e)
+                self.record_parse_error(cmd, str(e))
+                failed_commands.append(cmd)
                 return
 
         if not stats_data:
             return
 
-        # Got valid stats — clear any stale state
-        self.clear_parse_error()
-        await ws_router.broadcast({"type": "parse_cleared", "data": {}})
+        if failed_commands:
+            self._last_parse_error = "; ".join(
+                f"{cmd}: {self._stats_command_health[cmd]['last_error']}"
+                for cmd in failed_commands
+            )
+        else:
+            self.clear_parse_error()
+            await ws_router.broadcast({"type": "parse_cleared", "data": {}})
 
         # Remap device field names → DB column names
         for old_key, new_key in FIELD_REMAP.items():
@@ -347,7 +405,9 @@ class Poller:
         """Fetch log buffer from device and store new entries."""
         try:
             raw = await self._connection.send_command("log", timeout=10.0)
+            self._last_log_error = None
         except (ConnectionError, TimeoutError):
+            self._last_log_error = "log: timeout"
             return
 
         # Load prior fingerprints from persisted snapshot (bounded, not full scan)
@@ -410,6 +470,7 @@ class Poller:
                         await session.rollback()
             except Exception:
                 await session.rollback()
+                self._last_log_error = "log commit failed"
                 logger.warning("Unexpected error committing log entries", exc_info=True)
 
         collection.inserted = inserted
