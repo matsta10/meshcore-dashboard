@@ -105,10 +105,12 @@ def migrate(db_path: str, *, dry_run: bool = False) -> None:
         print(f"Deleted {dupe_deleted} duplicate rows")
 
         # Step 5: Backfill fingerprints and structured fields
-        updated = 0
-        for row_id, raw_line in cur.execute(
+        # Use fetchall() — can't iterate cursor while also using it for UPDATEs
+        rows = cur.execute(
             "SELECT id, raw_line FROM packet_logs WHERE fingerprint IS NULL"
-        ):
+        ).fetchall()
+        updated = 0
+        for row_id, raw_line in rows:
             fp = _compute_fingerprint(raw_line)
             m = _LOG_LINE_RE.search(raw_line)
             if m:
