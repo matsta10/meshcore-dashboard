@@ -157,7 +157,9 @@ async def test_sync_device_state_removes_stale_unsupported_config_keys():
     class _FakeConnection:
         async def get_config_value(self, key: str) -> str:
             if key == "cr":
-                raise ParseError("No config value line found", "get cr\r\n  -> ??: cr\r\n")
+                raise ParseError(
+                    "No config value line found", "get cr\r\n  -> ??: cr\r\n"
+                )
             if key == "adc.multiplier":
                 raise ParseError(
                     "No config value line found",
@@ -204,7 +206,9 @@ async def test_sync_device_state_removes_stale_unsupported_config_keys():
     await poller.sync_device_state(detect_drift=False)
 
     async with session_factory() as session:
-        result = await session.execute(select(ConfigCurrent).order_by(ConfigCurrent.key))
+        result = await session.execute(
+            select(ConfigCurrent).order_by(ConfigCurrent.key)
+        )
         keys = [row.key for row in result.scalars().all()]
         assert "cr" not in keys
         assert "adc.multiplier" not in keys
