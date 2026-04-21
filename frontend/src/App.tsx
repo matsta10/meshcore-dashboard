@@ -1,5 +1,19 @@
 import { lazy, Suspense } from "react"
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom"
+import { BrowserRouter, Routes, Route, NavLink, useLocation } from "react-router-dom"
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
+import { LayoutDashboardIcon, SettingsIcon, UsersIcon, ScrollTextIcon } from "lucide-react"
 
 const Dashboard = lazy(() => import("@/pages/Dashboard"))
 const Config = lazy(() => import("@/pages/Config"))
@@ -7,43 +21,51 @@ const Neighbors = lazy(() => import("@/pages/Neighbors"))
 const Logs = lazy(() => import("@/pages/Logs"))
 
 const navItems = [
-  { to: "/", label: "Dashboard" },
-  { to: "/config", label: "Config" },
-  { to: "/neighbors", label: "Neighbors" },
-  { to: "/logs", label: "Logs" },
+  { to: "/", label: "Dashboard", icon: LayoutDashboardIcon },
+  { to: "/config", label: "Config", icon: SettingsIcon },
+  { to: "/neighbors", label: "Neighbors", icon: UsersIcon },
+  { to: "/logs", label: "Logs", icon: ScrollTextIcon },
 ]
 
-function App() {
-  return (
-    <BrowserRouter>
-      <div className="flex h-screen">
-        {/* Sidebar */}
-        <aside className="w-44 border-r bg-sidebar p-4 flex flex-col gap-1">
-          <h2 className="text-lg font-bold mb-4 px-2">MeshCore</h2>
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                `px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </aside>
+function AppShell() {
+  const location = useLocation()
 
-        {/* Main content */}
+  return (
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarHeader>
+          <span className="px-2 text-lg font-bold">MeshCore</span>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+            <SidebarMenu>
+              {navItems.map((item) => (
+                <SidebarMenuItem key={item.to}>
+                  <SidebarMenuButton
+                    render={<NavLink to={item.to} end={item.to === "/"} />}
+                    isActive={
+                      item.to === "/"
+                        ? location.pathname === "/"
+                        : location.pathname.startsWith(item.to)
+                    }
+                  >
+                    <item.icon />
+                    {item.label}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
+      <SidebarInset>
         <main className="flex-1 overflow-y-auto p-6">
           <Suspense
             fallback={
-              <div className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
-                Loading page…
+              <div className="flex flex-col gap-4">
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-64 w-full" />
               </div>
             }
           >
@@ -55,7 +77,15 @@ function App() {
             </Routes>
           </Suspense>
         </main>
-      </div>
+      </SidebarInset>
+    </SidebarProvider>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppShell />
     </BrowserRouter>
   )
 }
