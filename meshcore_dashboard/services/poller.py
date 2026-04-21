@@ -215,8 +215,9 @@ class Poller:
 
         self._poll_count += 1
 
-        # Ensure packet logging is started
+        # Sync clock and start logging on first connection
         if not self._log_started:
+            await self._sync_device_clock()
             await self._ensure_log_started()
 
         now = datetime.now(UTC)
@@ -264,8 +265,9 @@ class Poller:
         # Check for reboot
         uptime = stats_data.get("uptime_secs")
         if uptime is not None and self._connection.check_reboot(uptime):
-            logger.info("Reboot detected! Re-reading config.")
+            logger.info("Reboot detected! Re-syncing clock and config.")
             self._log_started = False  # Re-start logging after reboot
+            await self._sync_device_clock()
             await self._log_reboot(uptime)
             await self.sync_device_state(detect_drift=True)
 
@@ -315,6 +317,17 @@ class Poller:
             )
             session.add(entry)
             await session.commit()
+
+    async def _sync_device_clock(self) -> None:
+        """Set the device clock to current UTC epoch seconds."""
+        epoch = int(datetime.now(UTC).timestamp())
+        try:
+            await self._connection.send_command(
+                f"time {epoch}", timeout=3.0
+            )
+            logger.info("Synced device clock to epoch %d", epoch)
+        except (ConnectionError, TimeoutError) as e:
+            logger.warning("Failed to sync device clock: %s", e)
 
     async def _ensure_log_started(self) -> None:
         """Send 'log start' to enable packet logging on device."""
