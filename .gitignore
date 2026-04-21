@@ -46,6 +46,11 @@ coverage.xml
 .vscode/
 .cursorignore
 .cursorindexingignore
+.superpowers/
 
 # macOS junk
 .DS_Store
+
+# Local planning / audit docs
+docs/audits/
+docs/superpowers/plans/
