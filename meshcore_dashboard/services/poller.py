@@ -329,7 +329,7 @@ class Poller:
     async def _collect_logs(self) -> None:
         """Fetch log buffer from device and store new entries."""
         try:
-            raw = await self._connection.send_command("log", timeout=1.0)
+            raw = await self._connection.send_command("log", timeout=5.0)
         except (ConnectionError, TimeoutError):
             return
 

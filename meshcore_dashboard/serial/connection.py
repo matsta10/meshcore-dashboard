@@ -84,6 +84,8 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
+        # Flush any stale data from the input buffer
+        await loop.run_in_executor(None, self._serial.reset_input_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
         deadline = loop.time() + timeout
