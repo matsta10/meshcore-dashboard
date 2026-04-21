@@ -91,9 +91,7 @@ async def stats_current() -> StatsResponse | None:
 
 @router.get("/api/stats/history")
 async def stats_history(
-    metrics: str = Query(
-        default="battery_mv,noise_floor,last_rssi,last_snr"
-    ),
+    metrics: str = Query(default=",".join(VALID_METRICS)),
     start: datetime | None = None,
     end: datetime | None = None,
     resolution: str = Query(default="raw"),
