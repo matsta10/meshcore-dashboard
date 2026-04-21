@@ -1,11 +1,9 @@
-import { startTransition, useEffect, useRef, useState } from "react"
+import { startTransition, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import type { StatsResponse, StatusResponse } from "@/lib/types"
 import { useWebSocket } from "@/hooks/useWebSocket"
-import { usePageVisibility } from "@/hooks/usePageVisibility"
 import {
   LineChart,
   Line,
@@ -25,9 +23,11 @@ function formatUptime(secs: number | null): string {
   return `${m}m`
 }
 
-function ConnectionBadge({ state }: { state: string }) {
-  const color =
-    state === "connected"
+function ConnectionBadge({ state, wsConnected }: { state: string; wsConnected: boolean }) {
+  const label = !wsConnected ? "reconnecting" : state
+  const color = !wsConnected
+    ? "bg-yellow-500 animate-pulse"
+    : state === "connected"
       ? "bg-green-500"
       : state === "unresponsive"
         ? "bg-yellow-500"
@@ -35,7 +35,7 @@ function ConnectionBadge({ state }: { state: string }) {
   return (
     <Badge variant="outline" className="gap-1.5">
       <span className={`h-2 w-2 rounded-full ${color}`} />
-      {state}
+      {label}
     </Badge>
   )
 }
@@ -44,10 +44,8 @@ export default function Dashboard() {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [stats, setStats] = useState<StatsResponse | null>(null)
   const [history, setHistory] = useState<StatsResponse[]>([])
-  const [liveMode, setLiveMode] = useState(false)
-  const { lastMessage, send } = useWebSocket()
-  const visible = usePageVisibility()
-  const renewalRef = useRef<ReturnType<typeof setInterval>>(null)
+  const [stale, setStale] = useState(false)
+  const { lastMessage, connected } = useWebSocket()
 
   useEffect(() => {
     let cancelled = false
@@ -58,6 +56,7 @@ export default function Dashboard() {
         startTransition(() => {
           setStatus(nextStatus)
           setStats(nextStats)
+          setStale(nextStats?.stale ?? false)
         })
       }
     )
@@ -79,32 +78,30 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Update stats from WS
+  // Update from WS messages
   useEffect(() => {
     if (lastMessage?.type === "stats_update") {
       startTransition(() => {
-        setStats(lastMessage.data as StatsResponse)
+        setStats(lastMessage.data as unknown as StatsResponse)
+      })
+    } else if (lastMessage?.type === "parse_error") {
+      setStale(true)
+    } else if (lastMessage?.type === "parse_cleared") {
+      setStale(false)
+    } else if (lastMessage?.type === "connection_status") {
+      startTransition(() => {
+        setStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                connection_state: (lastMessage.data as { state: string }).state as
+                  StatusResponse["connection_state"],
+              }
+            : prev
+        )
       })
     }
   }, [lastMessage])
-
-  // Live mode TTL renewal
-  useEffect(() => {
-    if (liveMode && visible) {
-      send({ type: "set_live_mode", data: { enabled: true } })
-      renewalRef.current = setInterval(() => {
-        send({ type: "set_live_mode", data: { enabled: true } })
-      }, 15000)
-    } else {
-      if (renewalRef.current) clearInterval(renewalRef.current)
-      if (!visible && liveMode) {
-        send({ type: "set_live_mode", data: { enabled: false } })
-      }
-    }
-    return () => {
-      if (renewalRef.current) clearInterval(renewalRef.current)
-    }
-  }, [liveMode, visible, send])
 
   return (
     <div className="space-y-6">
@@ -119,13 +116,15 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <ConnectionBadge state={status?.connection_state ?? "disconnected"} />
-          <div className="flex items-center gap-2">
-            <span className="text-sm">Live</span>
-            <Switch checked={liveMode} onCheckedChange={setLiveMode} />
-          </div>
+          <ConnectionBadge state={status?.connection_state ?? "disconnected"} wsConnected={connected} />
         </div>
       </div>
+
+      {stale && (
+        <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-200">
+          Device response could not be parsed — stats may be outdated
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
