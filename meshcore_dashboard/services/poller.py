@@ -226,6 +226,12 @@ class Poller:
         now = datetime.now(UTC)
         stats_data: dict = {}
 
+        # Collect packet logs BEFORE stats to avoid serial buffer contamination
+        # (the log command returns many lines that can bleed into subsequent reads)
+        await self._collect_logs()
+        # Brief pause to let serial line settle after large log dump
+        await asyncio.sleep(0.5)
+
         # Collect stats from all three commands
         for cmd in ("stats-core", "stats-radio", "stats-packets"):
             try:
@@ -297,9 +303,6 @@ class Poller:
         # Broadcast to WebSocket clients
         await ws_router.broadcast({"type": "stats_update", "data": stats_data})
 
-        # Collect packet logs every cycle
-        await self._collect_logs()
-
         # Poll neighbors periodically (including first cycle)
         if self._poll_count % NEIGHBOR_POLL_INTERVAL == 1:
             await self._poll_neighbors()
@@ -329,7 +332,7 @@ class Poller:
     async def _collect_logs(self) -> None:
         """Fetch log buffer from device and store new entries."""
         try:
-            raw = await self._connection.send_command("log", timeout=5.0)
+            raw = await self._connection.send_command("log", timeout=10.0)
         except (ConnectionError, TimeoutError):
             return
 
