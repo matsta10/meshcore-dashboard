@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from meshcore_dashboard.models import PacketLog
 from meshcore_dashboard.schemas import PacketLogEntry
 from meshcore_dashboard.serial.connection import RepeaterConnection
-from meshcore_dashboard.serial.parser import parse_log_lines
 
 router = APIRouter()
 
@@ -38,7 +37,7 @@ async def get_logs(
     async with _session_factory_ref() as session:
         result = await session.execute(
             select(PacketLog)
-            .order_by(PacketLog.timestamp.desc())
+            .order_by(PacketLog.collected_at.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -46,8 +45,18 @@ async def get_logs(
         return [
             PacketLogEntry(
                 id=row.id,
-                timestamp=row.timestamp,
+                collected_at=row.collected_at,
                 raw_line=row.raw_line,
+                fingerprint=row.fingerprint,
+                parse_status=row.parse_status,
+                direction=row.direction,
+                packet_type=row.packet_type,
+                route=row.route,
+                payload_len=row.payload_len,
+                snr=row.snr,
+                rssi=row.rssi,
+                device_time_text=row.device_time_text,
+                device_date_text=row.device_date_text,
             )
             for row in rows
         ]
@@ -75,16 +84,49 @@ async def fetch_logs() -> dict:
     assert _connection_ref
     assert _session_factory_ref
 
+    from meshcore_dashboard.services.log_collector import LogCollector
+
     raw = await _connection_ref.send_command("log", timeout=10.0)
-    lines = parse_log_lines(raw)
-    now = datetime.now(UTC)
 
     async with _session_factory_ref() as session:
-        for line in lines:
-            session.add(PacketLog(timestamp=now, raw_line=line))
-        await session.commit()
+        result = await session.execute(
+            select(PacketLog.fingerprint).where(PacketLog.fingerprint.is_not(None))
+        )
+        prior_fps = {row[0] for row in result}
 
-    return {"detail": f"Fetched {len(lines)} log entries"}
+    collector = LogCollector()
+    collection = collector.process_buffer(raw, prior_fingerprints=prior_fps)
+
+    if collection.parsed_lines:
+        now = datetime.now(UTC)
+        entries = [
+            PacketLog(
+                collected_at=now,
+                raw_line=p.raw_line,
+                fingerprint=p.fingerprint,
+                parse_status=p.parse_status,
+                direction=p.direction,
+                packet_type=p.packet_type,
+                route=p.route,
+                payload_len=p.payload_len,
+                snr=p.snr,
+                rssi=p.rssi,
+                device_time_text=p.device_time_text,
+                device_date_text=p.device_date_text,
+            )
+            for p in collection.parsed_lines
+        ]
+        async with _session_factory_ref() as session:
+            session.add_all(entries)
+            await session.commit()
+
+    return {
+        "detail": (
+            f"Fetched {collection.lines_seen} lines,"
+            f" inserted {collection.inserted},"
+            f" skipped {collection.duplicates_skipped} duplicates"
+        )
+    }
 
 
 @router.post("/api/logs/erase")
