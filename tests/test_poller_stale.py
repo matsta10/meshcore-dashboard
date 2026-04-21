@@ -1,6 +1,5 @@
 """Tests for poller parse-health tracking."""
 
-
 from meshcore_dashboard.services.poller import Poller
 
 

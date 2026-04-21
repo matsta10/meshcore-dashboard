@@ -21,7 +21,5 @@ async def create_engine_and_tables(
     async with engine.begin() as conn:
         await conn.execute(text("PRAGMA journal_mode=WAL"))
         await conn.run_sync(Base.metadata.create_all)
-    session_factory = async_sessionmaker(
-        engine, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
     return engine, session_factory

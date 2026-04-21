@@ -85,9 +85,13 @@ export default function Dashboard() {
         setStats(lastMessage.data as unknown as StatsResponse)
       })
     } else if (lastMessage?.type === "parse_error") {
-      setStale(true)
+      startTransition(() => {
+        setStale(true)
+      })
     } else if (lastMessage?.type === "parse_cleared") {
-      setStale(false)
+      startTransition(() => {
+        setStale(false)
+      })
     } else if (lastMessage?.type === "connection_status") {
       startTransition(() => {
         setStatus((prev) =>

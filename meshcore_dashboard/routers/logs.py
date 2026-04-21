@@ -81,9 +81,7 @@ async def fetch_logs() -> dict:
 
     async with _session_factory_ref() as session:
         for line in lines:
-            session.add(
-                PacketLog(timestamp=now, raw_line=line)
-            )
+            session.add(PacketLog(timestamp=now, raw_line=line))
         await session.commit()
 
     return {"detail": f"Fetched {len(lines)} log entries"}
@@ -98,7 +96,5 @@ async def erase_logs(confirm: bool = False) -> dict:
             detail="Must pass confirm=true to erase logs",
         )
     assert _connection_ref
-    await _connection_ref.send_command(
-        "log erase", timeout=10.0
-    )
+    await _connection_ref.send_command("log erase", timeout=10.0)
     return {"detail": "Device logs erased"}

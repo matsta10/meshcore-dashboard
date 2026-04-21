@@ -14,9 +14,7 @@ from meshcore_dashboard.models import (
 
 @pytest.fixture
 async def db_session():
-    engine, session_factory = await create_engine_and_tables(
-        "sqlite+aiosqlite://"
-    )
+    engine, session_factory = await create_engine_and_tables("sqlite+aiosqlite://")
     async with session_factory() as session:
         yield session
     await engine.dispose()

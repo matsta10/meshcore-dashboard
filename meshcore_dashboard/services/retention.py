@@ -74,9 +74,7 @@ class RetentionService:
         while True:
             now = datetime.now(UTC)
             # Calculate next 03:00 UTC
-            next_run = now.replace(
-                hour=3, minute=0, second=0, microsecond=0
-            )
+            next_run = now.replace(hour=3, minute=0, second=0, microsecond=0)
             if next_run <= now:
                 next_run += timedelta(days=1)
 
@@ -105,14 +103,10 @@ class RetentionService:
         # Delete old raw data
         async with self._session_factory() as session:
             await session.execute(
-                delete(StatsSnapshot).where(
-                    StatsSnapshot.timestamp < seven_days_ago
-                )
+                delete(StatsSnapshot).where(StatsSnapshot.timestamp < seven_days_ago)
             )
             await session.execute(
-                delete(StatsHourly).where(
-                    StatsHourly.timestamp < ninety_days_ago
-                )
+                delete(StatsHourly).where(StatsHourly.timestamp < ninety_days_ago)
             )
             await session.commit()
 
@@ -122,9 +116,7 @@ class RetentionService:
 
         logger.info("Retention job complete")
 
-    async def _downsample_to_hourly(
-        self, before: datetime
-    ) -> None:
+    async def _downsample_to_hourly(self, before: datetime) -> None:
         """Average gauges, take last value for counters."""
         async with self._session_factory() as session:
             # Get distinct hours that need downsampling
@@ -141,17 +133,15 @@ class RetentionService:
             hours = [row[0] for row in result.all()]
 
             for hour_str in hours:
-                hour_start = datetime.strptime(
-                    hour_str, "%Y-%m-%d %H:%M:%S"
-                ).replace(tzinfo=UTC)
+                hour_start = datetime.strptime(hour_str, "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=UTC
+                )
                 hour_end = hour_start + timedelta(hours=1)
 
                 # Get all snapshots in this hour
                 snap_result = await session.execute(
                     select(StatsSnapshot)
-                    .where(
-                        StatsSnapshot.timestamp >= hour_start
-                    )
+                    .where(StatsSnapshot.timestamp >= hour_start)
                     .where(StatsSnapshot.timestamp < hour_end)
                     .order_by(StatsSnapshot.timestamp.asc())
                 )
@@ -186,26 +176,18 @@ class RetentionService:
 
             await session.commit()
 
-    async def _downsample_to_daily(
-        self, before: datetime
-    ) -> None:
+    async def _downsample_to_daily(self, before: datetime) -> None:
         """Downsample hourly to daily."""
         async with self._session_factory() as session:
             result = await session.execute(
-                select(
-                    func.strftime(
-                        "%Y-%m-%d", StatsHourly.timestamp
-                    ).label("day")
-                )
+                select(func.strftime("%Y-%m-%d", StatsHourly.timestamp).label("day"))
                 .where(StatsHourly.timestamp < before)
                 .group_by("day")
             )
             days = [row[0] for row in result.all()]
 
             for day_str in days:
-                day_start = datetime.strptime(
-                    day_str, "%Y-%m-%d"
-                ).replace(tzinfo=UTC)
+                day_start = datetime.strptime(day_str, "%Y-%m-%d").replace(tzinfo=UTC)
                 day_end = day_start + timedelta(days=1)
 
                 hourly_result = await session.execute(
@@ -222,9 +204,7 @@ class RetentionService:
 
                 for col in GAUGE_COLUMNS:
                     values = [
-                        getattr(h, col)
-                        for h in hourlies
-                        if getattr(h, col) is not None
+                        getattr(h, col) for h in hourlies if getattr(h, col) is not None
                     ]
                     if values:
                         avg = (
@@ -245,12 +225,8 @@ class RetentionService:
     def _run_backup(self) -> None:
         """Run sqlite3 .backup command."""
         try:
-            date_str = datetime.now(UTC).strftime(
-                "%Y%m%d"
-            )
-            backup_file = (
-                f"{self._backup_path}/meshcore-{date_str}.db"
-            )
+            date_str = datetime.now(UTC).strftime("%Y%m%d")
+            backup_file = f"{self._backup_path}/meshcore-{date_str}.db"
             subprocess.run(
                 [
                     "sqlite3",

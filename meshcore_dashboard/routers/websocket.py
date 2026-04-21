@@ -26,20 +26,12 @@ async def get_active_poll_interval() -> int:
     now = time.time()
     async with _lock:
         # Clean expired TTLs
-        expired = [
-            ws
-            for ws, expiry in _clients.items()
-            if expiry > 0 and expiry < now
-        ]
+        expired = [ws for ws, expiry in _clients.items() if expiry > 0 and expiry < now]
         for ws in expired:
             _clients[ws] = 0  # Reset to no live mode
 
         # Check if any client has active live mode
-        has_live = any(
-            expiry > now
-            for expiry in _clients.values()
-            if expiry > 0
-        )
+        has_live = any(expiry > now for expiry in _clients.values() if expiry > 0)
     return LIVE_INTERVAL if has_live else DEFAULT_INTERVAL
 
 
@@ -73,27 +65,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             if msg.get("type") == "set_live_mode":
-                enabled = msg.get("data", {}).get(
-                    "enabled", False
-                )
+                enabled = msg.get("data", {}).get("enabled", False)
                 async with _lock:
                     if enabled:
-                        _clients[websocket] = (
-                            time.time() + LIVE_TTL
-                        )
+                        _clients[websocket] = time.time() + LIVE_TTL
                     else:
                         _clients[websocket] = 0
 
                 # Notify about interval change
                 interval = await get_active_poll_interval()
-                await broadcast(
-                    {
-                        "type": "poll_interval",
-                        "data": {
-                            "interval_seconds": interval
-                        },
-                    }
-                )
+                await broadcast({
+                    "type": "poll_interval",
+                    "data": {"interval_seconds": interval},
+                })
     except WebSocketDisconnect:
         pass
     finally:
