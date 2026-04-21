@@ -152,7 +152,7 @@ class Poller:
             try:
                 config_values[key] = await self._connection.get_config_value(key)
             except ParseError as e:
-                if "??:" in e.raw:
+                if "??:" in e.raw or "unsupported" in e.raw.lower():
                     unsupported_keys.add(key)
                 logger.debug("Config sync skipped for key %s", key)
             except (ConnectionError, TimeoutError):

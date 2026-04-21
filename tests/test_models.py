@@ -158,6 +158,11 @@ async def test_sync_device_state_removes_stale_unsupported_config_keys():
         async def get_config_value(self, key: str) -> str:
             if key == "cr":
                 raise ParseError("No config value line found", "get cr\r\n  -> ??: cr\r\n")
+            if key == "adc.multiplier":
+                raise ParseError(
+                    "No config value line found",
+                    "get adc.multiplier\r\n  -> Error: unsupported by this board\r\n",
+                )
             values = {
                 "name": "Blue Orchid",
                 "freq": "869.6179809",
@@ -186,6 +191,13 @@ async def test_sync_device_state_removes_stale_unsupported_config_keys():
                 updated_at=datetime.now(UTC),
             )
         )
+        session.add(
+            ConfigCurrent(
+                key="adc.multiplier",
+                value="0.1757428",
+                updated_at=datetime.now(UTC),
+            )
+        )
         await session.commit()
 
     poller = Poller(connection=_FakeConnection(), session_factory=session_factory)  # type: ignore[arg-type]
@@ -195,6 +207,7 @@ async def test_sync_device_state_removes_stale_unsupported_config_keys():
         result = await session.execute(select(ConfigCurrent).order_by(ConfigCurrent.key))
         keys = [row.key for row in result.scalars().all()]
         assert "cr" not in keys
+        assert "adc.multiplier" not in keys
 
     await engine.dispose()
 
