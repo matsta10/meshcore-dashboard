@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { TriangleAlertIcon } from "lucide-react"
 import { api } from "@/lib/api"
 import type {
   AdminActionResponse,
@@ -252,22 +254,24 @@ export default function Config() {
   const serverEpochSeconds = epochSecondsFromTimestamp(serverNow)
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <h1 className="text-2xl font-bold">Configuration</h1>
 
       {error && (
-        <div className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <TriangleAlertIcon data-icon />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <Card>
         <CardHeader>
           <CardTitle>Admin</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="flex flex-col gap-3">
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Device clock
