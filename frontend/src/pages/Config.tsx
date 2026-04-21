@@ -15,12 +15,13 @@ import {
 import { api } from "@/lib/api"
 import type { ConfigChangelogEntry, ConfigEntry } from "@/lib/types"
 
-const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power"])
+const CRITICAL_PARAMS = new Set(["freq", "bw", "sf", "cr", "tx_power", "password"])
 
 const CONFIG_CATEGORIES: { id: string; label: string; keys: string[] }[] = [
   { id: "radio", label: "Radio", keys: ["freq", "bw", "sf", "cr", "tx_power"] },
   { id: "network", label: "Network", keys: ["name"] },
   { id: "security", label: "Security", keys: ["pub.key"] },
+  { id: "system", label: "System", keys: ["password", "guest"] },
 ]
 
 const CONFIG_DESCRIPTIONS: Record<string, string> = {
@@ -31,6 +32,14 @@ const CONFIG_DESCRIPTIONS: Record<string, string> = {
   tx_power: "Transmit power (dBm)",
   name: "Device name on mesh",
   "pub.key": "Public key (read-only)",
+  password: "Admin password (masked)",
+  guest: "Guest password (masked)",
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = Date.parse(value)
+  if (Number.isNaN(parsed)) return "—"
+  return new Date(parsed).toLocaleString()
 }
 
 export default function Config() {
@@ -113,6 +122,9 @@ export default function Config() {
   }
 
   const configByKey = Object.fromEntries(config.map((c) => [c.key, c]))
+  const assignedKeys = new Set(
+    CONFIG_CATEGORIES.flatMap((category) => category.keys)
+  )
 
   return (
     <div className="space-y-4">
@@ -139,7 +151,13 @@ export default function Config() {
             </TabsList>
 
             {CONFIG_CATEGORIES.map((cat) => {
-              const categoryKeys = cat.keys.filter((k) => k in configByKey)
+              const categoryKeys = (
+                cat.id === "system"
+                  ? config
+                      .map((entry) => entry.key)
+                      .filter((key) => !assignedKeys.has(key))
+                  : cat.keys
+              ).filter((k) => k in configByKey)
               return (
                 <TabsContent key={cat.id} value={cat.id}>
                   {categoryKeys.length === 0 ? (
@@ -252,7 +270,7 @@ export default function Config() {
                 changelog.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell className="text-xs py-1.5">
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {formatTimestamp(entry.timestamp)}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-1.5">
                       {entry.key}
