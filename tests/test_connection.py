@@ -45,6 +45,7 @@ async def test_send_command_success(connection):
     mock_serial.write = MagicMock()
     mock_serial.readline = MagicMock(
         side_effect=[
+            b"",  # _drain_buffer reads until silence
             b"  -> MeshCore v1.14.1\r\n",
             b"",
         ]

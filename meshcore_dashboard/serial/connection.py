@@ -84,10 +84,9 @@ class RepeaterConnection:
     async def _do_send(self, cmd: str, timeout: float) -> str:
         assert self._serial is not None
         loop = asyncio.get_event_loop()
-        # Flush stale data, wait for any in-progress device output to finish
-        await loop.run_in_executor(None, self._serial.reset_input_buffer)
-        await asyncio.sleep(0.1)
-        await loop.run_in_executor(None, self._serial.reset_input_buffer)
+        # Drain all pending serial data (device streams log lines
+        # continuously). Read with a short timeout until silence.
+        await loop.run_in_executor(None, self._drain_buffer)
         await loop.run_in_executor(None, self._serial.write, f"{cmd}\r".encode())
         lines: list[str] = []
         saw_response = False
@@ -95,8 +94,6 @@ class RepeaterConnection:
         while loop.time() < deadline:
             raw = await loop.run_in_executor(None, self._serial.readline)
             if not raw:
-                # Serial timeout with no data — if we already have response
-                # lines, we're done. Otherwise keep waiting until deadline.
                 if saw_response:
                     break
                 continue
@@ -111,6 +108,17 @@ class RepeaterConnection:
         self._consecutive_failures = 0
         self._state = ConnectionState.CONNECTED
         return "\r\n".join(lines)
+
+    def _drain_buffer(self) -> None:
+        """Read and discard all pending serial data until 100ms of silence."""
+        assert self._serial is not None
+        saved_timeout = self._serial.timeout
+        self._serial.timeout = 0.1
+        try:
+            while self._serial.readline():
+                pass
+        finally:
+            self._serial.timeout = saved_timeout
 
     async def get_stats_json(self, cmd: str) -> dict:
         """Send a stats command and parse the JSON response."""
