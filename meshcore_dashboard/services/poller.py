@@ -239,6 +239,10 @@ class Poller:
                     e.raw,
                 )
                 self.record_parse_error(cmd, str(e))
+                await ws_router.broadcast({
+                    "type": "parse_error",
+                    "data": {"command": cmd, "message": str(e)},
+                })
             except (ConnectionError, TimeoutError) as e:
                 logger.warning("Command %s failed: %s", cmd, e)
                 return
@@ -248,6 +252,7 @@ class Poller:
 
         # Got valid stats — clear any stale state
         self.clear_parse_error()
+        await ws_router.broadcast({"type": "parse_cleared", "data": {}})
 
         # Remap device field names → DB column names
         for old_key, new_key in FIELD_REMAP.items():
@@ -341,6 +346,12 @@ class Poller:
                 session.add_all(entries)
                 await session.commit()
             logger.debug("Stored %d log entries", len(entries))
+
+            # Notify frontend of new log entries
+            await ws_router.broadcast({
+                "type": "logs_update",
+                "data": {"count": len(entries)},
+            })
 
         # Cap memory: keep only most recent 2000 seen lines
         if len(self._seen_log_lines) > 2000:
