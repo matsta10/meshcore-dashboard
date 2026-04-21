@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from meshcore_dashboard.models import (
     ConfigChangelog,
     ConfigCurrent,
     DeviceInfo,
+    LogCollectionState,
     Neighbor,
     PacketLog,
     StatsSnapshot,
@@ -23,8 +25,11 @@ from meshcore_dashboard.routers.status import update_last_poll
 from meshcore_dashboard.serial.connection import RepeaterConnection
 from meshcore_dashboard.serial.parser import (
     ParseError,
-    parse_log_lines,
     parse_response_lines,
+)
+from meshcore_dashboard.services.log_collector import (
+    LogCollectionResult,
+    LogCollector,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,7 +67,7 @@ class Poller:
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
         self._poll_count = 0
         self._log_started = False
-        self._seen_log_lines: set[str] = set()
+        self._log_collector = LogCollector()
         self._last_parse_error: str | None = None
 
     @property
@@ -179,15 +184,6 @@ class Poller:
             return float(value)
         return None
 
-    async def _seed_seen_logs(self) -> None:
-        """Load recent log lines from DB to avoid re-storing them."""
-        async with self._session_factory() as session:
-            result = await session.execute(
-                select(PacketLog.raw_line).order_by(PacketLog.id.desc()).limit(500)
-            )
-            for (line,) in result:
-                self._seen_log_lines.add(line)
-
     async def stop(self) -> None:
         """Stop the polling loop."""
         if self._task:
@@ -197,7 +193,6 @@ class Poller:
 
     async def _poll_loop(self) -> None:
         """Main polling loop with adaptive interval."""
-        await self._seed_seen_logs()
         while True:
             try:
                 await self._do_poll()
@@ -336,29 +331,86 @@ class Poller:
         except (ConnectionError, TimeoutError):
             return
 
+        # Load prior fingerprints from DB
+        prior_fps: set[str] = set()
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(PacketLog.fingerprint).where(PacketLog.fingerprint.is_not(None))
+            )
+            prior_fps = {row[0] for row in result}
+
+        # Process buffer
+        collection = self._log_collector.process_buffer(
+            raw, prior_fingerprints=prior_fps
+        )
+
+        if not collection.parsed_lines:
+            await self._update_collection_state(collection)
+            return
+
         now = datetime.now(UTC)
         entries: list[PacketLog] = []
+        for parsed in collection.parsed_lines:
+            entries.append(
+                PacketLog(
+                    collected_at=now,
+                    raw_line=parsed.raw_line,
+                    fingerprint=parsed.fingerprint,
+                    parse_status=parsed.parse_status,
+                    direction=parsed.direction,
+                    packet_type=parsed.packet_type,
+                    route=parsed.route,
+                    payload_len=parsed.payload_len,
+                    snr=parsed.snr,
+                    rssi=parsed.rssi,
+                    device_time_text=parsed.device_time_text,
+                    device_date_text=parsed.device_date_text,
+                )
+            )
 
-        for line in parse_log_lines(raw):
-            if line not in self._seen_log_lines:
-                self._seen_log_lines.add(line)
-                entries.append(PacketLog(timestamp=now, raw_line=line))
-
-        if entries:
-            async with self._session_factory() as session:
-                session.add_all(entries)
+        async with self._session_factory() as session:
+            session.add_all(entries)
+            try:
                 await session.commit()
-            logger.debug("Stored %d log entries", len(entries))
+            except Exception:
+                await session.rollback()
+                logger.debug("Some log entries already existed (fingerprint collision)")
+                return
 
-            # Notify frontend of new log entries
-            await ws_router.broadcast({
-                "type": "logs_update",
-                "data": {"count": len(entries)},
-            })
+        logger.debug("Stored %d log entries", len(entries))
 
-        # Cap memory: keep only most recent 2000 seen lines
-        if len(self._seen_log_lines) > 2000:
-            self._seen_log_lines = set(list(self._seen_log_lines)[-1000:])
+        await ws_router.broadcast({
+            "type": "logs_update",
+            "data": {"count": len(entries)},
+        })
+
+        await self._update_collection_state(collection)
+
+    async def _update_collection_state(self, collection: LogCollectionResult) -> None:
+        """Persist collection state for restart resilience."""
+        now = datetime.now(UTC)
+        async with self._session_factory() as session:
+            state = await session.get(LogCollectionState, 1)
+            if state is None:
+                state = LogCollectionState(id=1)
+                session.add(state)
+
+            state.last_polled_at = now
+            state.last_buffer_hash = collection.buffer_hash
+            state.last_buffer_size = collection.lines_seen
+
+            if collection.inserted > 0:
+                state.last_new_entry_at = now
+                state.unchanged_buffer_count = 0
+            else:
+                state.unchanged_buffer_count = (state.unchanged_buffer_count or 0) + 1
+
+            # Store current fingerprint list for snapshot diffing
+            fps = [p.fingerprint for p in collection.parsed_lines]
+            if fps:
+                state.last_snapshot_json = json.dumps(fps)
+
+            await session.commit()
 
     async def _poll_neighbors(self) -> None:
         """Fetch neighbors and upsert into DB."""
