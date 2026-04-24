@@ -199,12 +199,23 @@ async def fetch_logs() -> dict:
 
 @router.post("/api/logs/erase")
 async def erase_logs(confirm: bool = False) -> dict:
-    """Erase device log. Requires confirm=true."""
+    """Erase device log and reset collection state. Requires confirm=true."""
     if not confirm:
         raise HTTPException(
             status_code=400,
             detail="Must pass confirm=true to erase logs",
         )
     assert _connection_ref
+    assert _session_factory_ref
     await _connection_ref.send_command("log erase", timeout=10.0)
-    return {"detail": "Device logs erased"}
+
+    async with _session_factory_ref() as session:
+        state = await session.get(LogCollectionState, 1)
+        if state:
+            state.unchanged_buffer_count = 0
+            state.last_snapshot_json = "[]"
+            state.last_buffer_hash = None
+            state.last_buffer_size = 0
+            await session.commit()
+
+    return {"detail": "Device logs erased and collection state reset"}
