@@ -44,6 +44,9 @@ FIELD_REMAP = {
 # How often to poll neighbors (every N poll cycles)
 NEIGHBOR_POLL_INTERVAL = 10
 
+# Auto-erase device log buffer after this many unchanged polls
+LOG_STALE_THRESHOLD = 100
+
 CONFIG_SYNC_KEYS = (
     "name",
     "freq",
@@ -516,6 +519,32 @@ class Poller:
                 state.last_snapshot_json = json.dumps(collection.all_fingerprints)
 
             await session.commit()
+
+        # Auto-erase stale device log buffer
+        if (
+            collection.inserted == 0
+            and collection.lines_seen > 0
+            and state is not None
+            and state.unchanged_buffer_count >= LOG_STALE_THRESHOLD
+            and state.unchanged_buffer_count % LOG_STALE_THRESHOLD == 0
+        ):
+            logger.warning(
+                "Log buffer unchanged for %d polls, sending log erase",
+                state.unchanged_buffer_count,
+            )
+            try:
+                await self._connection.send_command("log erase", timeout=10.0)
+                async with self._session_factory() as session:
+                    state = await session.get(LogCollectionState, 1)
+                    if state:
+                        state.unchanged_buffer_count = 0
+                        state.last_snapshot_json = "[]"
+                        state.last_buffer_hash = None
+                        state.last_buffer_size = 0
+                        await session.commit()
+                logger.info("Auto-erased stale device log buffer")
+            except (ConnectionError, TimeoutError):
+                logger.warning("Failed to auto-erase log buffer")
 
     async def _poll_neighbors(self) -> None:
         """Fetch neighbors and upsert into DB."""
