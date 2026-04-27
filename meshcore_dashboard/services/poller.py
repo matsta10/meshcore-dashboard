@@ -266,6 +266,10 @@ class Poller:
                 raise
             except Exception as e:
                 logger.error("Poll error: %s", e)
+                # Force disconnected state so next cycle attempts reconnect
+                if self._connection.state.value != "disconnected":
+                    logger.warning("Forcing disconnect after unexpected error")
+                    await self._connection.disconnect()
 
             interval = await ws_router.get_active_poll_interval()
             await asyncio.sleep(interval)

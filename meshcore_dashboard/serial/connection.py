@@ -51,7 +51,7 @@ class RepeaterConnection:
             self._state = ConnectionState.CONNECTED
             self._consecutive_failures = 0
             logger.info("Connected to %s", self._port)
-        except serial.SerialException as e:
+        except (serial.SerialException, OSError) as e:
             self._state = ConnectionState.DISCONNECTED
             raise ConnectionError(f"Cannot open {self._port}: {e}") from e
 
@@ -76,7 +76,7 @@ class RepeaterConnection:
             if self._consecutive_failures >= 5:
                 self._state = ConnectionState.UNRESPONSIVE
             raise
-        except serial.SerialException as e:
+        except (serial.SerialException, OSError) as e:
             self._state = ConnectionState.DISCONNECTED
             self._serial = None
             raise ConnectionError(f"Serial error: {e}") from e
