@@ -202,19 +202,32 @@ class Poller:
                 device_info = DeviceInfo(id=1)
                 session.add(device_info)
 
-            device_info.name = config_values.get("name")
-            device_info.public_key = config_values.get("pub.key")
-            device_info.radio_freq = self._parse_optional_float(
-                config_values.get("freq")
-            )
-            device_info.radio_bw = self._parse_optional_float(config_values.get("bw"))
-            device_info.radio_sf = self._parse_optional_int(config_values.get("sf"))
-            device_info.radio_cr = self._parse_optional_int(config_values.get("cr"))
-            device_info.tx_power = self._parse_optional_int(
-                config_values.get("tx_power")
-            )
-            device_info.firmware_ver = firmware_ver
-            device_info.board = board
+            # Only overwrite fields that were successfully read; keep
+            # existing values when a command times out or fails.
+            if "name" in config_values:
+                device_info.name = config_values["name"]
+            if "pub.key" in config_values:
+                device_info.public_key = config_values["pub.key"]
+            if "freq" in config_values:
+                device_info.radio_freq = self._parse_optional_float(
+                    config_values["freq"]
+                )
+            if "bw" in config_values:
+                device_info.radio_bw = self._parse_optional_float(
+                    config_values["bw"]
+                )
+            if "sf" in config_values:
+                device_info.radio_sf = self._parse_optional_int(config_values["sf"])
+            if "cr" in config_values:
+                device_info.radio_cr = self._parse_optional_int(config_values["cr"])
+            if "tx_power" in config_values:
+                device_info.tx_power = self._parse_optional_int(
+                    config_values["tx_power"]
+                )
+            if firmware_ver is not None:
+                device_info.firmware_ver = firmware_ver
+            if board is not None:
+                device_info.board = board
             device_info.updated_at = now
 
             await session.commit()
