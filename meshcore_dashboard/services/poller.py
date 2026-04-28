@@ -44,9 +44,6 @@ FIELD_REMAP = {
 # How often to poll neighbors (every N poll cycles)
 NEIGHBOR_POLL_INTERVAL = 10
 
-# Auto-erase device log buffer after this many unchanged polls
-LOG_STALE_THRESHOLD = 100
-
 CONFIG_SYNC_KEYS = (
     "name",
     "freq",
@@ -284,19 +281,21 @@ class Poller:
 
         self._poll_count += 1
 
-        # Sync clock and force non-streaming log mode on first connection.
-        # Continuous `log start` output contaminates prefixed stats/config commands
-        # on this shared serial transport, so background polling must keep it off.
+        # Sync clock and enable log capture on first connection.
+        # `log start` tells the firmware to record packets to its circular
+        # buffer — without it the buffer stays empty.  Interleaved log lines
+        # on the serial transport are handled by the prefix-based parser.
         if not self._log_mode_initialized:
             await self._sync_device_clock()
-            await self._ensure_log_stopped()
+            await self._ensure_log_started()
 
         now = datetime.now(UTC)
         stats_data: dict = {}
 
-        # Collect stats before the large log dump. Even with streaming logs
-        # disabled, issuing `log` first can leave residual serial noise that
-        # contaminates subsequent prefixed stats commands.
+        # Collect stats before the log dump.  With log capture enabled the
+        # device may interleave log lines on the serial transport; the
+        # prefix-based parser handles this, but issuing stats first avoids
+        # residual noise from the large `log` response.
         failed_commands: list[str] = []
         for cmd in ("stats-core", "stats-radio", "stats-packets"):
             try:
@@ -408,14 +407,14 @@ class Poller:
         except (ConnectionError, TimeoutError) as e:
             logger.warning("Failed to sync device clock: %s", e)
 
-    async def _ensure_log_stopped(self) -> None:
-        """Disable continuous device log streaming for reliable polling."""
+    async def _ensure_log_started(self) -> None:
+        """Enable packet log capture to device storage."""
         try:
-            await self._connection.send_command("log stop", timeout=3.0)
+            await self._connection.send_command("log start", timeout=3.0)
             self._log_mode_initialized = True
-            logger.info("Continuous packet log streaming disabled on device")
+            logger.info("Packet log capture enabled on device")
         except (ConnectionError, TimeoutError) as e:
-            logger.warning("Failed to stop continuous logging: %s", e)
+            logger.warning("Failed to enable log capture: %s", e)
 
     async def _collect_logs(self) -> None:
         """Fetch log buffer from device and store new entries."""
@@ -523,32 +522,6 @@ class Poller:
                 state.last_snapshot_json = json.dumps(collection.all_fingerprints)
 
             await session.commit()
-
-        # Auto-erase stale device log buffer
-        if (
-            collection.inserted == 0
-            and collection.lines_seen > 0
-            and state is not None
-            and state.unchanged_buffer_count >= LOG_STALE_THRESHOLD
-            and state.unchanged_buffer_count % LOG_STALE_THRESHOLD == 0
-        ):
-            logger.warning(
-                "Log buffer unchanged for %d polls, sending log erase",
-                state.unchanged_buffer_count,
-            )
-            try:
-                await self._connection.send_command("log erase", timeout=10.0)
-                async with self._session_factory() as session:
-                    state = await session.get(LogCollectionState, 1)
-                    if state:
-                        state.unchanged_buffer_count = 0
-                        state.last_snapshot_json = "[]"
-                        state.last_buffer_hash = None
-                        state.last_buffer_size = 0
-                        await session.commit()
-                logger.info("Auto-erased stale device log buffer")
-            except (ConnectionError, TimeoutError):
-                logger.warning("Failed to auto-erase log buffer")
 
     async def _poll_neighbors(self) -> None:
         """Fetch neighbors and upsert into DB."""

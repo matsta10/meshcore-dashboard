@@ -50,13 +50,13 @@ def test_poller_tracks_partial_stats_health():
 
 
 @pytest.mark.anyio
-async def test_poller_stops_streaming_logs_on_startup():
+async def test_poller_enables_log_capture_on_startup():
     connection = AsyncMock()
     poller = Poller(connection=connection, session_factory=None)  # type: ignore[arg-type]
 
-    await poller._ensure_log_stopped()
+    await poller._ensure_log_started()
 
-    connection.send_command.assert_awaited_once_with("log stop", timeout=3.0)
+    connection.send_command.assert_awaited_once_with("log start", timeout=3.0)
 
 
 @pytest.mark.anyio
