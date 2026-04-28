@@ -98,6 +98,7 @@ export default function Dashboard() {
       .getStatsHistory({
         metrics: "battery_mv,noise_floor,last_rssi,last_snr",
         resolution: "raw",
+        start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       })
       .then((r) => {
         if (cancelled) return
