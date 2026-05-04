@@ -100,7 +100,9 @@ class RepeaterConnection:
         assert self._serial is not None
         loop = await self._prepare_command(cmd)
         lines: list[str] = []
+        saw_echo = False
         saw_response = False
+        cmd_stripped = cmd.strip()
         deadline = loop.time() + timeout
         saved_timeout = self._serial.timeout
         self._serial.timeout = min(0.2, timeout)
@@ -115,6 +117,14 @@ class RepeaterConnection:
                 if not line:
                     if saw_response:
                         break
+                    continue
+                # Skip any residual serial data that arrived before our
+                # command echo.  This prevents leftover output from the
+                # previous `log` dump from contaminating stats responses.
+                if not saw_echo:
+                    if line.strip() == cmd_stripped:
+                        saw_echo = True
+                        lines.append(line)
                     continue
                 lines.append(line)
                 if line.startswith("  -> "):

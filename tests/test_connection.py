@@ -44,7 +44,7 @@ async def test_send_command_success(connection):
     mock_serial.is_open = True
     mock_serial.write = MagicMock()
     mock_serial.reset_input_buffer = MagicMock()
-    responses = iter([b"  -> MeshCore v1.14.1\r\n", b""])
+    responses = iter([b"ver\r\n", b"  -> MeshCore v1.14.1\r\n", b""])
     mock_serial.readline = MagicMock(side_effect=lambda: next(responses, b""))
     with patch(
         "meshcore_dashboard.serial.connection.serial.Serial",
@@ -70,7 +70,7 @@ async def test_send_command_flushes_before_write(connection):
 
     mock_serial.reset_input_buffer = MagicMock(side_effect=record_flush)
     mock_serial.write = MagicMock(side_effect=record_write)
-    responses = iter([b"  -> ok\r\n", b""])
+    responses = iter([b"clock\r\n", b"  -> ok\r\n", b""])
     mock_serial.readline = MagicMock(side_effect=lambda: next(responses, b""))
 
     with patch(
@@ -79,7 +79,7 @@ async def test_send_command_flushes_before_write(connection):
     ):
         await connection.connect()
         result = await connection.send_command("clock")
-        assert result == "  -> ok"
+        assert "  -> ok" in result
         assert call_order[:2] == ["flush", "write"]
 
 
