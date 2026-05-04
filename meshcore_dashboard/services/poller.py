@@ -221,9 +221,7 @@ class Poller:
                     config_values["freq"]
                 )
             if "bw" in config_values:
-                device_info.radio_bw = self._parse_optional_float(
-                    config_values["bw"]
-                )
+                device_info.radio_bw = self._parse_optional_float(config_values["bw"])
             if "sf" in config_values:
                 device_info.radio_sf = self._parse_optional_int(config_values["sf"])
             if "cr" in config_values:
@@ -549,7 +547,6 @@ class Poller:
         # it back into action.
         if (
             collection.inserted == 0
-            and collection.lines_seen > 0
             and state is not None
             and state.unchanged_buffer_count >= LOG_STALE_THRESHOLD
             and state.unchanged_buffer_count % LOG_STALE_THRESHOLD == 0
